@@ -3,6 +3,17 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.JfPrewarm;
 
 /// <summary>
+/// One persisted cooldown entry. A list is used because Jellyfin stores plugin
+/// configuration as XML and XmlSerializer cannot serialize Dictionary types.
+/// </summary>
+public sealed class PreloadCooldownEntry
+{
+    public string EpisodeId { get; set; } = string.Empty;
+
+    public DateTime LastPreloadUtc { get; set; }
+}
+
+/// <summary>
 /// Plugin settings and persisted runtime state.
 /// </summary>
 public sealed class PluginConfiguration : BasePluginConfiguration
@@ -13,9 +24,10 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public int TriggerPercent { get; set; } = 90;
 
     /// <summary>
-    /// Last successful preload time, keyed by target episode item ID.
+    /// Last successful preload times, keyed by target episode item ID.
+    /// Stored as a list because Jellyfin's XML serializer cannot serialize dictionaries.
     /// </summary>
-    public Dictionary<string, DateTime> LastPreloadUtc { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<PreloadCooldownEntry> LastPreloads { get; set; } = [];
 
     public long PreloadAttempts { get; set; }
 

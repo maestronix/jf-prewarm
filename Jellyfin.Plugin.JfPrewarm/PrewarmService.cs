@@ -152,16 +152,13 @@ public sealed class PrewarmService : BackgroundService
         lock (_stateLock)
         {
             var config = Plugin.Instance.Configuration;
-            foreach (var expiredKey in config.LastPreloadUtc
-                .Where(entry => now - entry.Value >= Cooldown)
-                .Select(entry => entry.Key)
-                .ToArray())
-            {
-                config.LastPreloadUtc.Remove(expiredKey);
-            }
+            config.LastPreloads ??= [];
+            config.LastPreloads.RemoveAll(entry => now - entry.LastPreloadUtc >= Cooldown);
 
-            if (config.LastPreloadUtc.TryGetValue(itemKey, out var lastPreload)
-                && now - lastPreload < Cooldown)
+            var previousPreload = config.LastPreloads.FirstOrDefault(
+                entry => string.Equals(entry.EpisodeId, itemKey, StringComparison.OrdinalIgnoreCase));
+
+            if (previousPreload is not null && now - previousPreload.LastPreloadUtc < Cooldown)
             {
                 return;
             }
@@ -183,7 +180,24 @@ public sealed class PrewarmService : BackgroundService
             lock (_stateLock)
             {
                 var config = Plugin.Instance.Configuration;
-                config.LastPreloadUtc[itemKey] = DateTime.UtcNow;
+                config.LastPreloads ??= [];
+
+                var existingEntry = config.LastPreloads.FirstOrDefault(
+                    entry => string.Equals(entry.EpisodeId, itemKey, StringComparison.OrdinalIgnoreCase));
+
+                if (existingEntry is null)
+                {
+                    config.LastPreloads.Add(new PreloadCooldownEntry
+                    {
+                        EpisodeId = itemKey,
+                        LastPreloadUtc = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    existingEntry.LastPreloadUtc = DateTime.UtcNow;
+                }
+
                 config.SuccessfulPreloads++;
                 config.BytesRead += bytesRead;
                 config.LastResult = $"Preloaded {Describe(nextEpisode)} ({bytesRead:N0} bytes).";

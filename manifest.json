@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.2.0",
+        "changelog": "Fix settings page save flow: prevent page reload and show save/load errors and confirmation.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/maestronix/jf-prewarm/releases/download/v1.0.2.0/Jellyfin.Plugin.JfPrewarm_v1.0.2.0.zip",
+        "checksum": "220D8164587C11F1A14AEAABB31FC6D9",
+        "timestamp": "2026-11-20T10:13:31Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Fix XML serialization of persisted per-episode cooldown state; store cooldown entries in an XML-serializable list.",
         "targetAbi": "12.4.0.0",

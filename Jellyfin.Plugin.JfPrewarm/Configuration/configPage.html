@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Episode Prewarm</title>
+</head>
+<body>
+<div id="JfPrewarmConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="JfPrewarmConfigForm">
+                <div class="sectionTitleContainer">
+                    <h2 class="sectionTitle">Episode Prewarm</h2>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="TriggerPercent">Playback trigger threshold (%)</label>
+                    <input id="TriggerPercent" name="TriggerPercent" type="number" min="1" max="99" step="1" required />
+                    <div class="fieldDescription">Preload the next episode when playback reaches this percentage. Default: 90%.</div>
+                </div>
+                <div class="sectionTitleContainer">
+                    <h2 class="sectionTitle">Runtime statistics</h2>
+                </div>
+                <div class="paperList">
+                    <div class="listItem"><div class="listItemBody"><div>Preload attempts</div></div><div id="Attempts">0</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Successful preloads</div></div><div id="Successes">0</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Failed preloads</div></div><div id="Failures">0</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Total bytes read</div></div><div id="BytesRead">0</div></div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel">Last result</label>
+                    <div id="LastResult" class="fieldDescription">Loading…</div>
+                </div>
+                <div class="fieldDescription">Read size: fixed at 1 MiB. Cooldown: fixed at 6 hours per target episode.</div>
+                <br />
+                <button is="emby-button" type="submit" class="raised button-submit">
+                    <span>Save</span>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const pluginId = 'd1c4b6e8-8e2a-4b63-9f13-7a2e5d9c41f0';
+    const page = document.querySelector('#JfPrewarmConfigPage');
+    if (!page) return;
+
+    page.addEventListener('pageshow', loadConfiguration);
+    if (page.classList.contains('page-active')) loadConfiguration();
+
+    function loadConfiguration() {
+        ApiClient.getPluginConfiguration(pluginId).then(config => {
+            page.querySelector('#TriggerPercent').value = config.TriggerPercent ?? 90;
+            page.querySelector('#Attempts').textContent = config.PreloadAttempts ?? 0;
+            page.querySelector('#Successes').textContent = config.SuccessfulPreloads ?? 0;
+            page.querySelector('#Failures').textContent = config.FailedPreloads ?? 0;
+            page.querySelector('#BytesRead').textContent = Number(config.BytesRead ?? 0).toLocaleString();
+            page.querySelector('#LastResult').textContent = config.LastResult ?? 'No preload attempts yet.';
+        });
+    }
+
+    page.querySelector('#JfPrewarmConfigForm').addEventListener('submit', event => {
+        event.preventDefault();
+        ApiClient.getPluginConfiguration(pluginId).then(config => {
+            config.TriggerPercent = Math.max(1, Math.min(99, Number(page.querySelector('#TriggerPercent').value) || 90));
+            return ApiClient.updatePluginConfiguration(pluginId, config);
+        }).then(() => Dashboard.processPluginConfigurationUpdateResult());
+    });
+})();
+</script>
+</body>
+</html>

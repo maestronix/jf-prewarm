@@ -12,11 +12,12 @@
 | Nächste Episode ermitteln (inkl. Staffelwechsel) | ✅ Implementiert |
 | Asynchroner Worker und zentrale Preload-Verarbeitung | ✅ Implementiert |
 | Persistenter, globaler Cooldown pro Episode | ✅ Implementiert |
+| Jellyfin-API für Session-Start und User-Wiedergabestatus geprüft | ✅ Verifiziert |
 | Detailseiten-Trigger für alle unterstützten Media-Bibliotheken | 🟡 Geplant |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
 | Vereinheitlichte Kandidatenauswahl für alle Trigger | 🟡 Geplant |
 
-Legende: ✅ vorhanden · 🟡 geplant · 🔄 in Arbeit · ⬜ offen
+Legende: ✅ vorhanden / verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ offen
 
 ---
 
@@ -101,10 +102,21 @@ Diese Regeln gelten für **jeden** Trigger — unabhängig davon, ob er aus Play
 ## 🧭 Umsetzungsphasen
 
 ### Phase A — Technische Grundlagen prüfen
-- [ ] Jellyfin-12.4-API für Session-Start und User-Wiedergabestatus verifizieren.
+
+- [x] Jellyfin-12.4-API für Session-Start und User-Wiedergabestatus verifizieren.
 - [ ] Geeigneten Hook für HTTP-Detailseiten-Aufrufe verifizieren (ohne Response-Body-Manipulation).
 - [ ] Relevante Request-Varianten der Clients berücksichtigen: direkte Item-Abfrage und Einzel-ID-Abfrage über die Items-Collection.
 - [ ] Sicherstellen, dass nur echte Einzel-Item-Detailabfragen triggern — keine Bibliothekslisten, Suche, Bilder oder Playback-Requests.
+
+#### Verifizierte Jellyfin-12.4-APIs
+
+- **Session-Start:** `ISessionManager.SessionStarted` ist vorhanden und liefert `SessionEventArgs`; über `args.SessionInfo` stehen unter anderem `UserId`, `UserName`, `DeviceId` und `Client` zur Verfügung.
+- **Semantik:** Jellyfin feuert `SessionStarted` beim Erzeugen einer neuen Session. Die Session wird anhand von Client/App, Device-ID und User-ID identifiziert. Normale Aktivitätsmeldungen innerhalb derselben Session lösen dieses Event nicht erneut aus. Mehrere Geräte eines Users können daher jeweils einen eigenen Trigger erzeugen.
+- **User-Auflösung:** `IUserManager.GetUserById(Guid)` liefert den zugehörigen User.
+- **Wiedergabestatus:** `IUserDataManager.GetUserData(User, BaseItem)` liefert `UserItemData` mit `PlaybackPositionTicks`, `Played` und `LastPlayedDate`.
+- **Kandidatenabfrage:** Jellyfin unterstützt userbezogene Bibliotheksabfragen über `new InternalItemsQuery(user)`, inklusive `IncludeItemTypes`, `OrderBy = [(ItemSortBy.DatePlayed, SortOrder.Descending)]` und `Limit`. Damit lässt sich die zuletzt gespielte Episode gezielt abfragen, statt die komplette Bibliothek im Plugin zu durchsuchen.
+
+**Wichtige Einschränkung:** Die API-Verfügbarkeit ist verifiziert. Die konkrete Query muss bei der Implementierung noch gegen echte Resume- und Completed-Fälle getestet werden — insbesondere, ob Jellyfins DatePlayed-Sortierung für den gewünschten „letzten Episodenkontext“ alle relevanten Fälle korrekt abbildet. Für die Unterscheidung unter/ab 90 % muss zusätzlich die gespeicherte Position gegen die Laufzeit des konkreten Items ausgewertet werden; `Played` allein ist dafür kein zuverlässiger Ersatz.
 
 ### Phase B — Einheitliche Trigger- und Kandidatenlogik
 - [ ] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start definieren.

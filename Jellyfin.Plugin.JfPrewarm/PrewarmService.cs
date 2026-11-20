@@ -12,7 +12,9 @@ namespace Jellyfin.Plugin.JfPrewarm;
 public sealed class PrewarmService : BackgroundService
 {
     private const int ReadSize = 1024 * 1024;
-    private static readonly TimeSpan Cooldown = TimeSpan.FromHours(6);
+
+    // Temporary development cooldown. Restore to TimeSpan.FromHours(6) before release.
+    private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(1);
 
     private readonly ISessionManager _sessionManager;
     private readonly PrewarmCandidateResolver _candidateResolver;
@@ -46,7 +48,7 @@ public sealed class PrewarmService : BackgroundService
         _sessionManager.PlaybackStart += OnPlaybackProgress;
         _sessionManager.SessionStarted += OnSessionStarted;
         _logger.LogInformation("Episode Prewarm started. Trigger threshold: {Threshold}%.", GetThreshold());
-        _logger.LogInformation("Session-start trigger registered.");
+        _logger.LogInformation("Session-start trigger registered. Development cooldown: {Cooldown}.", Cooldown);
         return base.StartAsync(cancellationToken);
     }
 
@@ -74,7 +76,8 @@ public sealed class PrewarmService : BackgroundService
             if (session.UserId == Guid.Empty) return;
 
             _logger.LogInformation(
-                "New session detected for client {Client} on device {DeviceId}; resolving session-start candidate.",
+                "New session detected for user {UserId}, client {Client}, device {DeviceId}; queueing session-start resolution.",
+                session.UserId,
                 session.Client,
                 session.DeviceId);
 
@@ -139,17 +142,44 @@ public sealed class PrewarmService : BackgroundService
 
     private async Task ProcessRequestAsync(PrewarmRequest request, CancellationToken cancellationToken)
     {
-        var candidate = _candidateResolver.Resolve(request);
+        PrewarmCandidate? candidate;
+
+        try
+        {
+            candidate = _candidateResolver.Resolve(request);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Candidate resolution failed for {TriggerSource} trigger and user {UserId}.",
+                request.Source,
+                request.UserId);
+            throw;
+        }
+
         if (candidate is null || string.IsNullOrWhiteSpace(candidate.Item.Path))
         {
             if (request.Source == PrewarmTriggerSource.SessionStarted)
-                _logger.LogDebug("No eligible session-start prewarm candidate found for user {UserId}.", request.UserId);
+            {
+                _logger.LogInformation(
+                    "No eligible session-start candidate found for user {UserId}.",
+                    request.UserId);
+            }
+
             return;
         }
 
         var targetItem = candidate.Item;
         var itemKey = targetItem.Id.ToString("N");
         var now = DateTime.UtcNow;
+
+        _logger.LogInformation(
+            "Resolved {TriggerSource} candidate {ItemName} ({ItemId}) for user {UserId}.",
+            request.Source,
+            Describe(targetItem),
+            targetItem.Id,
+            request.UserId);
 
         lock (_stateLock)
         {
@@ -162,8 +192,10 @@ public sealed class PrewarmService : BackgroundService
 
             if (previousPreload is not null && now - previousPreload.LastPreloadUtc < Cooldown)
             {
-                if (request.Source == PrewarmTriggerSource.SessionStarted)
-                    _logger.LogDebug("Session-start candidate {ItemName} is still in the global cooldown.", targetItem.Name);
+                _logger.LogInformation(
+                    "Skipping {ItemName}: target is still in the global {Cooldown} cooldown.",
+                    Describe(targetItem),
+                    Cooldown);
                 return;
             }
 
@@ -202,7 +234,7 @@ public sealed class PrewarmService : BackgroundService
 
             _logger.LogInformation(
                 "Preloaded {ItemName} ({BytesRead} bytes) from {TriggerSource} trigger.",
-                targetItem.Name,
+                Describe(targetItem),
                 bytesRead,
                 candidate.Source);
         }
@@ -216,7 +248,7 @@ public sealed class PrewarmService : BackgroundService
                 Plugin.Instance.SaveConfiguration();
             }
 
-            _logger.LogWarning(ex, "Preload failed for {ItemName} at {Path}.", targetItem.Name, targetItem.Path);
+            _logger.LogWarning(ex, "Preload failed for {ItemName} at {Path}.", Describe(targetItem), targetItem.Path);
         }
     }
 

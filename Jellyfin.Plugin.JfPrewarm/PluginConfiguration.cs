@@ -8,6 +8,10 @@ namespace Jellyfin.Plugin.JfPrewarm;
 /// </summary>
 public sealed class PreloadCooldownEntry
 {
+    /// <summary>
+    /// Legacy XML element name retained for backwards compatibility.
+    /// The value is now the ID of any preloaded media item, not only an episode.
+    /// </summary>
     public string EpisodeId { get; set; } = string.Empty;
 
     public DateTime LastPreloadUtc { get; set; }
@@ -24,9 +28,9 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public int TriggerPercent { get; set; } = 90;
 
     /// <summary>
-    /// Last successful preload times, keyed by target episode item ID.
-    /// Stored as a list because Jellyfin's XML serializer cannot serialize dictionaries.
-    /// </summary>
+    /// Last successful preload times, keyed by target media item ID.
+    /// The EpisodeId XML element name is retained for configuration compatibility.
+/// </summary>
     public List<PreloadCooldownEntry> LastPreloads { get; set; } = [];
 
     public long PreloadAttempts { get; set; }

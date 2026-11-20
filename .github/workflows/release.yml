@@ -67,7 +67,7 @@ jobs:
           cp "Jellyfin.Plugin.JfPrewarm/bin/Release/net10.0/$PLUGIN.dll" release_package/
           cp meta.json release_package/
           ZIP="${PLUGIN}_v${VERSION}.zip"
-          (cd release_package && zip -9 "../$ZIP" .)
+          (cd release_package && zip -9 -r "../$ZIP" .)
           md5sum "$ZIP" | awk '{print toupper($1)}' > checksum.txt
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 

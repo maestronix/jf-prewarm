@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -68,14 +69,15 @@ public sealed class PrewarmService : BackgroundService
         try
         {
             if (args.Item is not Episode episode
-                || args.PlaybackPositionTicks <= 0
+                || args.PlaybackPositionTicks is not long positionTicks
+                || positionTicks <= 0
                 || episode.RunTimeTicks is not > 0)
             {
                 return;
             }
 
             var thresholdTicks = episode.RunTimeTicks.Value * (long)GetThreshold() / 100L;
-            if (args.PlaybackPositionTicks < thresholdTicks)
+            if (positionTicks < thresholdTicks)
             {
                 return;
             }
@@ -148,6 +150,14 @@ public sealed class PrewarmService : BackgroundService
         lock (_stateLock)
         {
             var config = Plugin.Instance.Configuration;
+            foreach (var expiredKey in config.LastPreloadUtc
+                .Where(entry => now - entry.Value >= Cooldown)
+                .Select(entry => entry.Key)
+                .ToArray())
+            {
+                config.LastPreloadUtc.Remove(expiredKey);
+            }
+
             if (config.LastPreloadUtc.TryGetValue(itemKey, out var lastPreload)
                 && now - lastPreload < Cooldown)
             {

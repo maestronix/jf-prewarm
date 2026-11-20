@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using MediaBrowser.Controller.Entities;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
-using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -119,10 +119,12 @@ public sealed class PrewarmService : BackgroundService
     private async Task ProcessEpisodeAsync(Guid sourceEpisodeId, CancellationToken cancellationToken)
     {
         if (_libraryManager.GetItemById(sourceEpisodeId) is not Episode sourceEpisode
-            || sourceEpisode.SeriesId is not Guid seriesId)
+            || sourceEpisode.SeriesId == Guid.Empty)
         {
             return;
         }
+
+        var seriesId = sourceEpisode.SeriesId;
 
         var episodes = _libraryManager.GetItemList(new InternalItemsQuery
         {

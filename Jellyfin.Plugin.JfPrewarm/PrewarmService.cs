@@ -59,6 +59,14 @@ public sealed class PrewarmService : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Enqueues a detail-page candidate after its metadata request succeeded.
+    /// </summary>
+    public void QueueDetailRequest(Guid itemId, Guid? userId)
+    {
+        QueueRequest(new PrewarmRequest(PrewarmTriggerSource.ItemDetail, itemId, userId));
+    }
+
     private static int GetThreshold()
     {
         return Math.Clamp(Plugin.Instance.Configuration.TriggerPercent, 1, 99);

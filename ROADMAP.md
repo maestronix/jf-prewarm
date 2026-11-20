@@ -16,7 +16,7 @@
 | HTTP-Detailseiten-Hook und Client-Request-Varianten untersucht | ✅ Verifiziert (Build/Runtime noch offen) |
 | Detailseiten-Trigger | 🟡 Geplant |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
-| Gemeinsames Trigger-/Request-Modell konzipiert | ✅ Dokumentiert |
+| Gemeinsames Trigger-/Request-Modell | ✅ Implementiert |
 | Vereinheitlichte Kandidatenauswahl für alle Trigger | 🟡 Geplant |
 
 Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ offen
@@ -193,20 +193,20 @@ Der Resolver liefert keinen Container ohne eigene Mediendatei als Preload-Ziel. 
 
 **Persistenz-/Kompatibilitätshinweis:** Der aktuelle XML-Konfigurationseintrag heißt `EpisodeId`, obwohl künftig auch Filme und andere Media Items gespeichert werden. Bei der Umstellung auf einen generischen Item-Schlüssel muss die bestehende Jellyfin-XML-Konfiguration rückwärtskompatibel eingelesen bzw. migriert werden. Die bestehende XML-Property darf nicht einfach umbenannt werden, ohne diesen Migrationspfad zu testen.
 
-### B5. Abgrenzung und Reihenfolge der Umsetzung
+### B5. Umsetzungsstand und Reihenfolge
 
-1. Request-/Trigger-Typen und Candidate-Resolver einführen, zunächst ohne das aktuelle Playback-Verhalten zu verändern.
-2. Bestehenden Playback-Trigger auf das Request-Modell umstellen und Verhalten vergleichen.
-3. Cooldown und In-Flight-Dedupe auf die aufgelöste Ziel-Item-ID vereinheitlichen.
-4. Erst danach Detailseiten- und Session-Start-Trigger anschließen.
+1. [x] Request-/Trigger-Typen und Candidate-Resolver einführen.
+2. [x] Bestehenden Playback-Trigger auf das Request-Modell umstellen; Schwellwert und Episodenfolge bleiben unverändert.
+3. [x] Cooldown auf die aufgelöste Ziel-Item-ID umstellen; bestehendes XML-Feld `EpisodeId` aus Kompatibilitätsgründen beibehalten.
+4. [ ] Detailseiten- und Session-Start-Trigger anschließen.
 
 Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session-Events sollen keine zweite Preload-Pipeline aufbauen.
 
 - [x] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start konzipieren und dokumentieren.
-- [ ] Request-Modell und Candidate-Resolver im Plugin implementieren.
+- [x] Request-Modell und Candidate-Resolver im Plugin implementieren (Playback-Progress angebunden).
 - [ ] Kandidatenauswahl für Serienverlauf, Resume-Fälle und Filme zentralisieren.
 - [ ] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
-- [ ] Globale Cooldown- und In-Flight-Prüfung vor dem Queue-Eintrag vereinheitlichen.
+- [x] Globale Cooldown-Prüfung und Request-Deduplizierung in den gemeinsamen Worker übernehmen (Ziel-Item-ID als Cooldown-Schlüssel).
 - [ ] Trigger-Quelle intern nachvollziehbar halten (Playback, Detailseite, Session-Start), ohne unnötig ausführliche Logs zu erzeugen.
 
 ## Phase C — Trigger implementieren

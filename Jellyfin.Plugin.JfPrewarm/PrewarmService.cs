@@ -73,7 +73,7 @@ public sealed class PrewarmService : BackgroundService
             var session = args.SessionInfo;
             if (session.UserId == Guid.Empty) return;
 
-            _logger.LogDebug(
+            _logger.LogInformation(
                 "New session detected for client {Client} on device {DeviceId}; resolving session-start candidate.",
                 session.Client,
                 session.DeviceId);

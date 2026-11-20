@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+*.user
+*.suo
+release_package/
+*.zip
+checksum.txt

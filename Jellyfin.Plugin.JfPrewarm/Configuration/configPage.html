@@ -18,6 +18,7 @@
                     <input id="TriggerPercent" name="TriggerPercent" type="number" min="1" max="99" step="1" required />
                     <div class="fieldDescription">Preload the next episode when playback reaches this percentage. Default: 90%.</div>
                 </div>
+                <div class="fieldDescription" id="SaveStatus" role="status" aria-live="polite"></div>
                 <div class="sectionTitleContainer">
                     <h2 class="sectionTitle">Runtime statistics</h2>
                 </div>
@@ -33,7 +34,7 @@
                 </div>
                 <div class="fieldDescription">Read size: fixed at 1 MiB. Cooldown: fixed at 6 hours per target episode.</div>
                 <br />
-                <button is="emby-button" type="submit" class="raised button-submit">
+                <button id="SaveButton" is="emby-button" type="button" class="raised button-submit">
                     <span>Save</span>
                 </button>
             </form>
@@ -46,27 +47,59 @@
     const page = document.querySelector('#JfPrewarmConfigPage');
     if (!page) return;
 
+    const thresholdInput = page.querySelector('#TriggerPercent');
+    const saveButton = page.querySelector('#SaveButton');
+    const saveStatus = page.querySelector('#SaveStatus');
+
     page.addEventListener('pageshow', loadConfiguration);
     if (page.classList.contains('page-active')) loadConfiguration();
 
     function loadConfiguration() {
         ApiClient.getPluginConfiguration(pluginId).then(config => {
-            page.querySelector('#TriggerPercent').value = config.TriggerPercent ?? 90;
+            thresholdInput.value = config.TriggerPercent ?? 90;
             page.querySelector('#Attempts').textContent = config.PreloadAttempts ?? 0;
             page.querySelector('#Successes').textContent = config.SuccessfulPreloads ?? 0;
             page.querySelector('#Failures').textContent = config.FailedPreloads ?? 0;
             page.querySelector('#BytesRead').textContent = Number(config.BytesRead ?? 0).toLocaleString();
             page.querySelector('#LastResult').textContent = config.LastResult ?? 'No preload attempts yet.';
+        }).catch(error => {
+            saveStatus.textContent = 'Could not load plugin configuration: ' + error;
         });
     }
 
-    page.querySelector('#JfPrewarmConfigForm').addEventListener('submit', event => {
-        event.preventDefault();
+    function saveConfiguration() {
+        const value = Number(thresholdInput.value);
+        if (!Number.isInteger(value) || value < 1 || value > 99) {
+            saveStatus.textContent = 'Enter a whole number between 1 and 99.';
+            thresholdInput.focus();
+            return;
+        }
+
+        saveButton.disabled = true;
+        saveStatus.textContent = 'Saving…';
+
         ApiClient.getPluginConfiguration(pluginId).then(config => {
-            config.TriggerPercent = Math.max(1, Math.min(99, Number(page.querySelector('#TriggerPercent').value) || 90));
+            config.TriggerPercent = value;
             return ApiClient.updatePluginConfiguration(pluginId, config);
-        }).then(() => Dashboard.processPluginConfigurationUpdateResult());
-    });
+        }).then(() => {
+            // Refresh the displayed configuration without forcing a dashboard/page reload.
+            return ApiClient.getPluginConfiguration(pluginId);
+        }).then(config => {
+            thresholdInput.value = config.TriggerPercent ?? value;
+            page.querySelector('#Attempts').textContent = config.PreloadAttempts ?? 0;
+            page.querySelector('#Successes').textContent = config.SuccessfulPreloads ?? 0;
+            page.querySelector('#Failures').textContent = config.FailedPreloads ?? 0;
+            page.querySelector('#BytesRead').textContent = Number(config.BytesRead ?? 0).toLocaleString();
+            page.querySelector('#LastResult').textContent = config.LastResult ?? 'No preload attempts yet.';
+            saveStatus.textContent = 'Saved. Trigger threshold: ' + thresholdInput.value + '%.';
+        }).catch(error => {
+            saveStatus.textContent = 'Could not save plugin configuration: ' + error;
+        }).finally(() => {
+            saveButton.disabled = false;
+        });
+    }
+
+    saveButton.addEventListener('click', saveConfiguration);
 })();
 </script>
 </body>

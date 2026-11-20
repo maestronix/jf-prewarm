@@ -9,10 +9,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JfPrewarm;
 
-/// <summary>
-/// Receives prewarm requests and performs candidate resolution and file reads
-/// away from playback and request-processing threads.
-/// </summary>
 public sealed class PrewarmService : BackgroundService
 {
     private const int ReadSize = 1024 * 1024;
@@ -29,7 +25,6 @@ public sealed class PrewarmService : BackgroundService
             FullMode = BoundedChannelFullMode.Wait
         });
 
-    // Prevent identical requests from accumulating while queued or processed.
     private readonly ConcurrentDictionary<PrewarmRequest, byte> _pending = new();
     private readonly object _stateLock = new();
 
@@ -49,7 +44,9 @@ public sealed class PrewarmService : BackgroundService
     {
         _sessionManager.PlaybackProgress += OnPlaybackProgress;
         _sessionManager.PlaybackStart += OnPlaybackProgress;
+        _sessionManager.SessionStarted += OnSessionStarted;
         _logger.LogInformation("Episode Prewarm started. Trigger threshold: {Threshold}%.", GetThreshold());
+        _logger.LogInformation("Session-start trigger registered.");
         return base.StartAsync(cancellationToken);
     }
 
@@ -57,21 +54,36 @@ public sealed class PrewarmService : BackgroundService
     {
         _sessionManager.PlaybackProgress -= OnPlaybackProgress;
         _sessionManager.PlaybackStart -= OnPlaybackProgress;
+        _sessionManager.SessionStarted -= OnSessionStarted;
         _queue.Writer.TryComplete();
         await base.StopAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// Enqueues a detail-page candidate after its metadata request succeeded.
-    /// </summary>
     public void QueueDetailRequest(Guid itemId, Guid? userId)
     {
         QueueRequest(new PrewarmRequest(PrewarmTriggerSource.ItemDetail, itemId, userId));
     }
 
-    private static int GetThreshold()
+    private static int GetThreshold() => Math.Clamp(Plugin.Instance.Configuration.TriggerPercent, 1, 99);
+
+    private void OnSessionStarted(object? sender, SessionEventArgs args)
     {
-        return Math.Clamp(Plugin.Instance.Configuration.TriggerPercent, 1, 99);
+        try
+        {
+            var session = args.SessionInfo;
+            if (session.UserId == Guid.Empty) return;
+
+            _logger.LogDebug(
+                "New session detected for client {Client} on device {DeviceId}; resolving session-start candidate.",
+                session.Client,
+                session.DeviceId);
+
+            QueueRequest(new PrewarmRequest(PrewarmTriggerSource.SessionStarted, UserId: session.UserId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not queue prewarm from session-start event.");
+        }
     }
 
     private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs args)
@@ -87,14 +99,8 @@ public sealed class PrewarmService : BackgroundService
             }
 
             var thresholdTicks = episode.RunTimeTicks.Value * (long)GetThreshold() / 100L;
-            if (positionTicks < thresholdTicks)
-            {
-                return;
-            }
-
-            QueueRequest(new PrewarmRequest(
-                PrewarmTriggerSource.PlaybackProgress,
-                episode.Id));
+            if (positionTicks < thresholdTicks) return;
+            QueueRequest(new PrewarmRequest(PrewarmTriggerSource.PlaybackProgress, episode.Id));
         }
         catch (Exception ex)
         {
@@ -104,15 +110,8 @@ public sealed class PrewarmService : BackgroundService
 
     private void QueueRequest(PrewarmRequest request)
     {
-        if (!_pending.TryAdd(request, 0))
-        {
-            return;
-        }
-
-        if (!_queue.Writer.TryWrite(request))
-        {
-            _pending.TryRemove(request, out _);
-        }
+        if (!_pending.TryAdd(request, 0)) return;
+        if (!_queue.Writer.TryWrite(request)) _pending.TryRemove(request, out _);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -129,11 +128,7 @@ public sealed class PrewarmService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Unhandled prewarm worker error for {TriggerSource} request {ItemId}.",
-                    request.Source,
-                    request.ItemId);
+                _logger.LogError(ex, "Unhandled prewarm worker error for {TriggerSource} request {ItemId}.", request.Source, request.ItemId);
             }
             finally
             {
@@ -147,6 +142,8 @@ public sealed class PrewarmService : BackgroundService
         var candidate = _candidateResolver.Resolve(request);
         if (candidate is null || string.IsNullOrWhiteSpace(candidate.Item.Path))
         {
+            if (request.Source == PrewarmTriggerSource.SessionStarted)
+                _logger.LogDebug("No eligible session-start prewarm candidate found for user {UserId}.", request.UserId);
             return;
         }
 
@@ -165,6 +162,8 @@ public sealed class PrewarmService : BackgroundService
 
             if (previousPreload is not null && now - previousPreload.LastPreloadUtc < Cooldown)
             {
+                if (request.Source == PrewarmTriggerSource.SessionStarted)
+                    _logger.LogDebug("Session-start candidate {ItemName} is still in the global cooldown.", targetItem.Name);
                 return;
             }
 
@@ -177,28 +176,18 @@ public sealed class PrewarmService : BackgroundService
         try
         {
             var bytesRead = await ReadFirstMiBAsync(targetItem.Path, cancellationToken).ConfigureAwait(false);
-            if (bytesRead <= 0)
-            {
-                throw new IOException("The target media item returned no readable bytes.");
-            }
+            if (bytesRead <= 0) throw new IOException("The target media item returned no readable bytes.");
 
             lock (_stateLock)
             {
                 var config = Plugin.Instance.Configuration;
                 config.LastPreloads ??= [];
-
                 var existingEntry = config.LastPreloads.FirstOrDefault(
                     entry => string.Equals(entry.EpisodeId, itemKey, StringComparison.OrdinalIgnoreCase));
 
                 if (existingEntry is null)
                 {
-                    // EpisodeId is retained as the XML-serialized property name for
-                    // backwards compatibility; it now stores any target MediaItem ID.
-                    config.LastPreloads.Add(new PreloadCooldownEntry
-                    {
-                        EpisodeId = itemKey,
-                        LastPreloadUtc = DateTime.UtcNow
-                    });
+                    config.LastPreloads.Add(new PreloadCooldownEntry { EpisodeId = itemKey, LastPreloadUtc = DateTime.UtcNow });
                 }
                 else
                 {
@@ -227,11 +216,7 @@ public sealed class PrewarmService : BackgroundService
                 Plugin.Instance.SaveConfiguration();
             }
 
-            _logger.LogWarning(
-                ex,
-                "Preload failed for {ItemName} at {Path}.",
-                targetItem.Name,
-                targetItem.Path);
+            _logger.LogWarning(ex, "Preload failed for {ItemName} at {Path}.", targetItem.Name, targetItem.Path);
         }
     }
 
@@ -255,15 +240,8 @@ public sealed class PrewarmService : BackgroundService
 
         while (totalRead < buffer.Length)
         {
-            var read = await stream.ReadAsync(
-                buffer.AsMemory(totalRead, buffer.Length - totalRead),
-                cancellationToken).ConfigureAwait(false);
-
-            if (read == 0)
-            {
-                break;
-            }
-
+            var read = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
             totalRead += read;
         }
 

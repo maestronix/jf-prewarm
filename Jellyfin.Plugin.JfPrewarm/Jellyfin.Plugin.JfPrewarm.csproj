@@ -6,17 +6,16 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Jellyfin.Plugin.JfPrewarm</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.JfPrewarm</RootNamespace>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>$(PluginVersion)</Version>
+    <AssemblyVersion>$(PluginVersion)</AssemblyVersion>
+    <FileVersion>$(PluginVersion)</FileVersion>
+    <InformationalVersion>$(PluginVersion)</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
-
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="12.4.0">
       <ExcludeAssets>runtime</ExcludeAssets>
@@ -25,7 +24,6 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
-
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
   </ItemGroup>

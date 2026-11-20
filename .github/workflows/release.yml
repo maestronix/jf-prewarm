@@ -1,0 +1,118 @@
+name: Build and Release Jellyfin Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Plugin version (for example 1.0.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          META_VERSION="$(jq -r '.version' meta.json)"
+          if [[ "$VERSION" != "$META_VERSION" ]]; then
+            echo "::error::Release version $VERSION does not match meta.json version $META_VERSION"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "target_abi=$(jq -r '.targetAbi' meta.json)" >> "$GITHUB_OUTPUT"
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          jq -r '.changelog' meta.json >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Restore and build
+        run: |
+          dotnet restore Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj
+          dotnet build Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj --configuration Release --no-restore
+
+      - name: Package plugin
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PLUGIN="Jellyfin.Plugin.JfPrewarm"
+          mkdir -p release_package
+          cp "Jellyfin.Plugin.JfPrewarm/bin/Release/net10.0/$PLUGIN.dll" release_package/
+          cp meta.json release_package/
+          ZIP="${PLUGIN}_v${VERSION}.zip"
+          (cd release_package && zip -9 "../$ZIP" .)
+          md5sum "$ZIP" | awk '{print toupper($1)}' > checksum.txt
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Episode Prewarm v${{ steps.version.outputs.version }}
+          body: ${{ steps.version.outputs.changelog }}
+          generate_release_notes: true
+          files: |
+            ${{ env.ZIP }}
+            checksum.txt
+
+      - name: Update Jellyfin repository manifest
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARGET_ABI="${{ steps.version.outputs.target_abi }}"
+          CHANGELOG="${{ steps.version.outputs.changelog }}"
+          TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          CHECKSUM="$(cat checksum.txt)"
+          ZIP="${{ env.ZIP }}"
+          SOURCE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${ZIP}"
+
+          jq \
+            --arg version "$VERSION" \
+            --arg targetAbi "$TARGET_ABI" \
+            --arg changelog "$CHANGELOG" \
+            --arg checksum "$CHECKSUM" \
+            --arg sourceUrl "$SOURCE_URL" \
+            --arg timestamp "$TIMESTAMP" \
+            '.[0].versions = ([{
+              version: $version,
+              changelog: $changelog,
+              targetAbi: $targetAbi,
+              sourceUrl: $sourceUrl,
+              checksum: $checksum,
+              timestamp: $timestamp
+            }] + [.[0].versions[] | select(.version != $version)])' manifest.json > manifest.tmp
+
+          mv manifest.tmp manifest.json
+
+      - name: Commit manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git diff --cached --quiet || git commit -m "Publish Jellyfin repository manifest for v${{ steps.version.outputs.version }}"
+          git push

@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.4.3",
+        "changelog": "Add the session-start trigger using the user's most recent episode or movie. Resume episodes below the configured threshold, advance to the next episode at or above it, and skip completed movies. Centralize plugin, assembly, file, and release versioning in Directory.Build.props.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/maestronix/jf-prewarm/releases/download/v1.0.4.3/Jellyfin.Plugin.JfPrewarm_v1.0.4.3.zip",
+        "checksum": "CC51E9967CA269F25583CC3B17F70561",
+        "timestamp": "2026-11-20T13:16:28Z"
+      },
+      {
         "version": "1.0.4.2",
         "changelog": "Add the session-start trigger using the user's most recent episode or movie. Resume episodes below the configured threshold, advance to the next episode at or above it, and skip completed movies. Centralize plugin, assembly, file, and release versioning in Directory.Build.props.",
         "targetAbi": "12.4.0.0",

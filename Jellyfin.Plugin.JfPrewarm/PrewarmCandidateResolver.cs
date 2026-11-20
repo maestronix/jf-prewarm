@@ -38,7 +38,7 @@ public sealed class PrewarmCandidateResolver
         }
 
         var item = _libraryManager.GetItemById(itemId);
-        if (item is null || string.IsNullOrWhiteSpace(item.Path))
+        if (item is null || item.IsFolder || string.IsNullOrWhiteSpace(item.Path))
         {
             return null;
         }

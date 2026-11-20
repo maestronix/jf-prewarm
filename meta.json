@@ -5,7 +5,7 @@
   "overview": "Asynchronously reads up to 1 MiB from a target media item with a persistent global 6-hour cooldown per item.",
   "owner": "maestronix",
   "category": "General",
-  "version": "1.0.4.1",
+  "version": "1.0.4.2",
   "targetAbi": "12.4.0.0",
   "framework": "net10.0",
   "changelog": "Add the session-start trigger using the user's most recent episode or movie. Resume episodes below the configured threshold, advance to the next episode at or above it, and skip completed movies. Centralize plugin, assembly, file, and release versioning in Directory.Build.props.",

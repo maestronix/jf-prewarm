@@ -6,6 +6,15 @@
     "overview": "Asynchronously reads 1 MiB from the next episode with a persistent 6-hour cooldown per episode.",
     "owner": "maestronix",
     "category": "General",
-    "versions": []
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release: asynchronous next-episode preloading, per-episode 6-hour cooldown, configurable playback threshold, and runtime statistics.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/maestronix/jf-prewarm/releases/download/v1.0.0.0/Jellyfin.Plugin.JfPrewarm_v1.0.0.0.zip",
+        "checksum": "84C1D9EBB0A2E6E2A4DB99385C252CD0",
+        "timestamp": "2026-11-20T09:01:50Z"
+      }
+    ]
   }
 ]

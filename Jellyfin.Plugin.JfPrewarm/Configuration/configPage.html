@@ -23,18 +23,18 @@
                     <h2 class="sectionTitle">Runtime statistics</h2>
                 </div>
                 <div class="paperList">
-                    <div class="listItem"><div class="listItemBody"><div>Preload attempts</div></div><div id="Attempts">0</div></div>
-                    <div class="listItem"><div class="listItemBody"><div>Successful preloads</div></div><div id="Successes">0</div></div>
-                    <div class="listItem"><div class="listItemBody"><div>Failed preloads</div></div><div id="Failures">0</div></div>
-                    <div class="listItem"><div class="listItemBody"><div>Total bytes read</div></div><div id="BytesRead">0</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Preload attempts</div></div><div id="Attempts">Loading…</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Successful preloads</div></div><div id="Successes">Loading…</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Failed preloads</div></div><div id="Failures">Loading…</div></div>
+                    <div class="listItem"><div class="listItemBody"><div>Total bytes read</div></div><div id="BytesRead">Loading…</div></div>
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel">Last result</label>
                     <div id="LastResult" class="fieldDescription">Loading…</div>
                 </div>
-                <div class="fieldDescription">Read size: fixed at 1 MiB. Cooldown: fixed at 6 hours per target episode.</div>
+                <div class="fieldDescription">Read size: fixed at 1 MiB. Cooldown: 1 second (development setting).</div>
                 <br />
-                <button id="SaveButton" is="emby-button" type="button" class="raised button-submit">
+                <button id="SaveButton" is="emby-button" type="submit" class="raised button-submit">
                     <span>Save</span>
                 </button>
             </form>
@@ -47,23 +47,36 @@
     const page = document.querySelector('#JfPrewarmConfigPage');
     if (!page) return;
 
+    const form = page.querySelector('#JfPrewarmConfigForm');
     const thresholdInput = page.querySelector('#TriggerPercent');
     const saveButton = page.querySelector('#SaveButton');
     const saveStatus = page.querySelector('#SaveStatus');
 
-    page.addEventListener('pageshow', loadConfiguration);
-    if (page.classList.contains('page-active')) loadConfiguration();
+    // Jellyfin's JSON serializer exposes C# properties in camelCase.
+    // Keep PascalCase fallbacks for compatibility with older/custom serializers.
+    function getValue(config, camelCase, pascalCase, fallback) {
+        const value = config[camelCase] !== undefined ? config[camelCase] : config[pascalCase];
+        return value !== undefined && value !== null ? value : fallback;
+    }
+
+    function renderConfiguration(config) {
+        thresholdInput.value = getValue(config, 'triggerPercent', 'TriggerPercent', 90);
+        page.querySelector('#Attempts').textContent = getValue(config, 'preloadAttempts', 'PreloadAttempts', 0);
+        page.querySelector('#Successes').textContent = getValue(config, 'successfulPreloads', 'SuccessfulPreloads', 0);
+        page.querySelector('#Failures').textContent = getValue(config, 'failedPreloads', 'FailedPreloads', 0);
+        page.querySelector('#BytesRead').textContent = Number(getValue(config, 'bytesRead', 'BytesRead', 0)).toLocaleString();
+        page.querySelector('#LastResult').textContent = getValue(config, 'lastResult', 'LastResult', 'No preload attempts yet.');
+    }
 
     function loadConfiguration() {
+        saveStatus.textContent = 'Loading configuration…';
+
         ApiClient.getPluginConfiguration(pluginId).then(config => {
-            thresholdInput.value = config.TriggerPercent ?? 90;
-            page.querySelector('#Attempts').textContent = config.PreloadAttempts ?? 0;
-            page.querySelector('#Successes').textContent = config.SuccessfulPreloads ?? 0;
-            page.querySelector('#Failures').textContent = config.FailedPreloads ?? 0;
-            page.querySelector('#BytesRead').textContent = Number(config.BytesRead ?? 0).toLocaleString();
-            page.querySelector('#LastResult').textContent = config.LastResult ?? 'No preload attempts yet.';
+            renderConfiguration(config);
+            saveStatus.textContent = '';
         }).catch(error => {
-            saveStatus.textContent = 'Could not load plugin configuration: ' + error;
+            saveStatus.textContent = 'Could not load plugin configuration: ' + (error?.message || error);
+            page.querySelector('#LastResult').textContent = 'Configuration could not be loaded.';
         });
     }
 
@@ -79,27 +92,30 @@
         saveStatus.textContent = 'Saving…';
 
         ApiClient.getPluginConfiguration(pluginId).then(config => {
-            config.TriggerPercent = value;
+            // The API uses camelCase JSON names. Updating PascalCase would add
+            // an unrelated property instead of changing TriggerPercent.
+            config.triggerPercent = value;
             return ApiClient.updatePluginConfiguration(pluginId, config);
         }).then(() => {
-            // Refresh the displayed configuration without forcing a dashboard/page reload.
             return ApiClient.getPluginConfiguration(pluginId);
         }).then(config => {
-            thresholdInput.value = config.TriggerPercent ?? value;
-            page.querySelector('#Attempts').textContent = config.PreloadAttempts ?? 0;
-            page.querySelector('#Successes').textContent = config.SuccessfulPreloads ?? 0;
-            page.querySelector('#Failures').textContent = config.FailedPreloads ?? 0;
-            page.querySelector('#BytesRead').textContent = Number(config.BytesRead ?? 0).toLocaleString();
-            page.querySelector('#LastResult').textContent = config.LastResult ?? 'No preload attempts yet.';
+            renderConfiguration(config);
             saveStatus.textContent = 'Saved. Trigger threshold: ' + thresholdInput.value + '%.';
         }).catch(error => {
-            saveStatus.textContent = 'Could not save plugin configuration: ' + error;
+            saveStatus.textContent = 'Could not save plugin configuration: ' + (error?.message || error);
         }).finally(() => {
             saveButton.disabled = false;
         });
     }
 
-    saveButton.addEventListener('click', saveConfiguration);
+    // Load immediately as well as on subsequent navigation back to this page.
+    loadConfiguration();
+    page.addEventListener('pageshow', loadConfiguration);
+
+    form.addEventListener('submit', event => {
+        event.preventDefault();
+        saveConfiguration();
+    });
 })();
 </script>
 </body>

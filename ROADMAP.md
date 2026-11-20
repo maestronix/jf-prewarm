@@ -14,7 +14,9 @@
 | Persistenter, globaler Cooldown pro Episode | ✅ Implementiert |
 | Jellyfin-API für Session-Start und User-Wiedergabestatus geprüft | ✅ Verifiziert |
 | HTTP-Detailseiten-Hook und Client-Request-Varianten untersucht | ✅ Verifiziert (Build/Runtime noch offen) |
-| Detailseiten-Trigger | 🟡 Geplant |
+| Detailseiten-Middleware für Einzel-Item-Requests | ✅ Implementiert (Build/Runtime-Test offen) |
+| Detailseiten-Trigger für konkrete dateibasierte Items | ✅ Implementiert (Build/Runtime-Test offen) |
+| Container-Auflösung (Serie/Staffel/Sammlung) | 🟡 Geplant |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
 | Gemeinsames Trigger-/Request-Modell | ✅ Implementiert |
 | Vereinheitlichte Kandidatenauswahl für alle Trigger | 🟡 Geplant |
@@ -47,7 +49,7 @@ Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ 
 
 ### 4. Detailseite eines Films
 
-- [ ] Beim Öffnen genau diesen Film prewarmen.
+- [x] Beim erfolgreichen Einzel-Item-Metadatenabruf genau diesen Film prewarmen.
 - [ ] Es gilt der normale globale Item-Cooldown.
 
 ### 5. Detailseiten weiterer Media Items / Bibliotheken
@@ -211,8 +213,9 @@ Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session
 
 ## Phase C — Trigger implementieren
 
-- [ ] Detailseiten-Middleware integrieren.
-- [ ] Detailseiten-Trigger für Serien, Episoden, Filme und weitere unterstützte Media Items aktivieren.
+- [x] Detailseiten-Middleware integrieren.
+- [x] Einzel-Item-Trigger für konkrete dateibasierte Items aktivieren.
+- [ ] Container-Items (Serie/Staffel/Sammlung) auf konkrete Kandidaten auflösen.
 - [ ] Session-Start-Trigger integrieren.
 - [ ] Bestehenden 90-%-Playback-Trigger an die gemeinsame Queue-/Kandidatenlogik anbinden.
 

@@ -104,9 +104,18 @@ Diese Regeln gelten für **jeden** Trigger — unabhängig davon, ob er aus Play
 ### Phase A — Technische Grundlagen prüfen
 
 - [x] Jellyfin-12.4-API für Session-Start und User-Wiedergabestatus verifizieren.
-- [ ] Geeigneten Hook für HTTP-Detailseiten-Aufrufe verifizieren (ohne Response-Body-Manipulation).
+- [x] Geeigneten Hook für HTTP-Detailseiten-Aufrufe verifizieren (ohne Response-Body-Manipulation).
 - [ ] Relevante Request-Varianten der Clients berücksichtigen: direkte Item-Abfrage und Einzel-ID-Abfrage über die Items-Collection.
 - [ ] Sicherstellen, dass nur echte Einzel-Item-Detailabfragen triggern — keine Bibliothekslisten, Suche, Bilder oder Playback-Requests.
+
+#### Verifizierter HTTP-Hook für Detailseiten
+
+- **Plugin-Einstiegspunkt:** Jellyfin ruft `IPluginServiceRegistrator.RegisterServices` während `CoreAppHost.Init` auf — also bevor der Webhost gebaut und gestartet wird. Der Plugin-Registrator kann damit einen ASP.NET-Core-`IStartupFilter` in der ServiceCollection registrieren.
+- **Pipeline-Einbindung:** Jellyfin 12.4 verwendet eine reguläre ASP.NET-Core-`Startup`-Klasse. Ein `IStartupFilter` kann die bestehende `Startup.Configure`-Pipeline um eine Middleware umschließen, ohne Jellyfins Startup-Klasse oder Controller zu ersetzen.
+- **Verhalten:** Die Middleware kann den Request vor `next` klassifizieren und nach `next` ausschließlich bei erfolgreichem HTTP-Status (2xx) einen Kandidaten an die vorhandene Queue melden. Kein Response-Body muss gelesen, gepuffert oder verändert werden.
+- **Abhängigkeit:** Das Plugin benötigt für die Compile-Time-Typen `IStartupFilter` / `IApplicationBuilder` eine Referenz auf das ASP.NET-Core-Shared-Framework (voraussichtlich `FrameworkReference Include="Microsoft.AspNetCore.App"`). Das muss beim Plugin-Build und im Jellyfin-Plugin-Load-Kontext verifiziert werden.
+
+**Ergebnis:** Ein eigener HTTP-Middleware-Hook ist auf Jellyfin 12.4 grundsätzlich möglich; ein Austausch von Jellyfins `Startup` oder ein Eingriff in den Response-Body ist nicht erforderlich. Die konkreten Request-Matcher und der Build-/Runtime-Test bleiben offen.
 
 #### Verifizierte Jellyfin-12.4-APIs
 

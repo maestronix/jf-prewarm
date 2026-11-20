@@ -16,6 +16,7 @@
 | HTTP-Detailseiten-Hook und Client-Request-Varianten untersucht | ✅ Verifiziert (Build/Runtime noch offen) |
 | Detailseiten-Trigger | 🟡 Geplant |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
+| Gemeinsames Trigger-/Request-Modell konzipiert | ✅ Dokumentiert |
 | Vereinheitlichte Kandidatenauswahl für alle Trigger | 🟡 Geplant |
 
 Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ offen
@@ -201,7 +202,8 @@ Der Resolver liefert keinen Container ohne eigene Mediendatei als Preload-Ziel. 
 
 Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session-Events sollen keine zweite Preload-Pipeline aufbauen.
 
-- [ ] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start definieren.
+- [x] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start konzipieren und dokumentieren.
+- [ ] Request-Modell und Candidate-Resolver im Plugin implementieren.
 - [ ] Kandidatenauswahl für Serienverlauf, Resume-Fälle und Filme zentralisieren.
 - [ ] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
 - [ ] Globale Cooldown- und In-Flight-Prüfung vor dem Queue-Eintrag vereinheitlichen.

@@ -31,8 +31,9 @@ jobs:
           VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:PluginVersion)"
           ASSEMBLY_VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:AssemblyVersion)"
           FILE_VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:FileVersion)"
-          if [[ -z "$VERSION" || "$VERSION" != "$ASSEMBLY_VERSION" || "$VERSION" != "$FILE_VERSION" ]]; then
-            echo "::error::Plugin version properties are inconsistent (PluginVersion=$VERSION, AssemblyVersion=$ASSEMBLY_VERSION, FileVersion=$FILE_VERSION)"
+          PACKAGE_VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:Version)"
+          if [[ -z "$VERSION" || "$VERSION" != "$ASSEMBLY_VERSION" || "$VERSION" != "$FILE_VERSION" || "$VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "::error::Plugin version properties are inconsistent (PluginVersion=$VERSION, Version=$PACKAGE_VERSION, AssemblyVersion=$ASSEMBLY_VERSION, FileVersion=$FILE_VERSION)"
             exit 1
           fi
           echo "Using plugin version $VERSION"

@@ -1,13 +1,13 @@
 {
   "guid": "d1c4b6e8-8e2a-4b63-9f13-7a2e5d9c41f0",
   "name": "Episode Prewarm",
-  "description": "Preloads media items asynchronously when playback or item-detail activity indicates they may be played soon.",
+  "description": "Preloads media items asynchronously when playback, item-detail activity, or a new Jellyfin session indicates they may be played soon.",
   "overview": "Asynchronously reads up to 1 MiB from a target media item with a persistent global 6-hour cooldown per item.",
   "owner": "maestronix",
   "category": "General",
-  "version": "1.0.3.0",
+  "version": "1.0.4.0",
   "targetAbi": "12.4.0.0",
   "framework": "net10.0",
-  "changelog": "Add item-detail request triggers and resolve series, season, and collection containers to concrete playable media. Use per-user playback history and the configured progress threshold to select the appropriate episode, while retaining a shared queue and global per-item cooldown.",
+  "changelog": "Add the session-start trigger using the user's most recent episode or movie. Resume episodes below the configured threshold, advance to the next episode at or above it, and skip completed movies. Centralize plugin, assembly, file, and release versioning in Directory.Build.props.",
   "imageUrl": ""
 }

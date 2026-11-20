@@ -6,7 +6,7 @@
     <title>Episode Prewarm</title>
 </head>
 <body>
-<div id="JfPrewarmConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+<div id="JfPrewarmConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
     <div data-role="content">
         <div class="content-primary">
             <form id="JfPrewarmConfigForm">
@@ -15,7 +15,7 @@
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel" for="TriggerPercent">Playback trigger threshold (%)</label>
-                    <input id="TriggerPercent" name="TriggerPercent" type="number" min="1" max="99" step="1" required />
+                    <input id="TriggerPercent" name="TriggerPercent" type="number" is="emby-input" min="1" max="99" step="1" required />
                     <div class="fieldDescription">Preload the next episode when playback reaches this percentage. Default: 90%.</div>
                 </div>
                 <div class="fieldDescription" id="SaveStatus" role="status" aria-live="polite"></div>
@@ -41,81 +41,92 @@
         </div>
     </div>
 </div>
-<script>
+<script type="text/javascript">
 (function () {
     const pluginId = 'd1c4b6e8-8e2a-4b63-9f13-7a2e5d9c41f0';
     const page = document.querySelector('#JfPrewarmConfigPage');
-    if (!page) return;
+    if (!page || page.dataset.initialized === 'true') {
+        return;
+    }
+    page.dataset.initialized = 'true';
 
     const form = page.querySelector('#JfPrewarmConfigForm');
     const thresholdInput = page.querySelector('#TriggerPercent');
     const saveButton = page.querySelector('#SaveButton');
     const saveStatus = page.querySelector('#SaveStatus');
 
-    // Jellyfin's JSON serializer exposes C# properties in camelCase.
-    // Keep PascalCase fallbacks for compatibility with older/custom serializers.
-    function getValue(config, camelCase, pascalCase, fallback) {
-        const value = config[camelCase] !== undefined ? config[camelCase] : config[pascalCase];
+    function getValue(config, propertyName, fallback) {
+        const value = config[propertyName];
         return value !== undefined && value !== null ? value : fallback;
     }
 
     function renderConfiguration(config) {
-        thresholdInput.value = getValue(config, 'triggerPercent', 'TriggerPercent', 90);
-        page.querySelector('#Attempts').textContent = getValue(config, 'preloadAttempts', 'PreloadAttempts', 0);
-        page.querySelector('#Successes').textContent = getValue(config, 'successfulPreloads', 'SuccessfulPreloads', 0);
-        page.querySelector('#Failures').textContent = getValue(config, 'failedPreloads', 'FailedPreloads', 0);
-        page.querySelector('#BytesRead').textContent = Number(getValue(config, 'bytesRead', 'BytesRead', 0)).toLocaleString();
-        page.querySelector('#LastResult').textContent = getValue(config, 'lastResult', 'LastResult', 'No preload attempts yet.');
+        thresholdInput.value = getValue(config, 'TriggerPercent', 90);
+        page.querySelector('#Attempts').textContent = getValue(config, 'PreloadAttempts', 0).toLocaleString();
+        page.querySelector('#Successes').textContent = getValue(config, 'SuccessfulPreloads', 0).toLocaleString();
+        page.querySelector('#Failures').textContent = getValue(config, 'FailedPreloads', 0).toLocaleString();
+        page.querySelector('#BytesRead').textContent = Number(getValue(config, 'BytesRead', 0)).toLocaleString();
+        page.querySelector('#LastResult').textContent = getValue(config, 'LastResult', 'No preload attempts yet.');
     }
 
     function loadConfiguration() {
         saveStatus.textContent = 'Loading configuration…';
+        Dashboard.showLoadingMsg();
 
-        ApiClient.getPluginConfiguration(pluginId).then(config => {
-            renderConfiguration(config);
-            saveStatus.textContent = '';
-        }).catch(error => {
-            saveStatus.textContent = 'Could not load plugin configuration: ' + (error?.message || error);
-            page.querySelector('#LastResult').textContent = 'Configuration could not be loaded.';
-        });
+        ApiClient.getPluginConfiguration(pluginId)
+            .then(config => {
+                renderConfiguration(config);
+                saveStatus.textContent = '';
+            })
+            .catch(error => {
+                console.error('Episode Prewarm: failed to load plugin configuration.', error);
+                saveStatus.textContent = 'Could not load plugin configuration: ' + (error?.message || error);
+                page.querySelector('#LastResult').textContent = 'Configuration could not be loaded.';
+            })
+            .finally(() => {
+                Dashboard.hideLoadingMsg();
+            });
     }
 
-    function saveConfiguration() {
+    function saveConfiguration(event) {
+        event.preventDefault();
+
         const value = Number(thresholdInput.value);
         if (!Number.isInteger(value) || value < 1 || value > 99) {
             saveStatus.textContent = 'Enter a whole number between 1 and 99.';
             thresholdInput.focus();
-            return;
+            return false;
         }
 
         saveButton.disabled = true;
         saveStatus.textContent = 'Saving…';
+        Dashboard.showLoadingMsg();
 
-        ApiClient.getPluginConfiguration(pluginId).then(config => {
-            // The API uses camelCase JSON names. Updating PascalCase would add
-            // an unrelated property instead of changing TriggerPercent.
-            config.triggerPercent = value;
-            return ApiClient.updatePluginConfiguration(pluginId, config);
-        }).then(() => {
-            return ApiClient.getPluginConfiguration(pluginId);
-        }).then(config => {
-            renderConfiguration(config);
-            saveStatus.textContent = 'Saved. Trigger threshold: ' + thresholdInput.value + '%.';
-        }).catch(error => {
-            saveStatus.textContent = 'Could not save plugin configuration: ' + (error?.message || error);
-        }).finally(() => {
-            saveButton.disabled = false;
-        });
+        ApiClient.getPluginConfiguration(pluginId)
+            .then(config => {
+                config.TriggerPercent = value;
+                return ApiClient.updatePluginConfiguration(pluginId, config);
+            })
+            .then(() => ApiClient.getPluginConfiguration(pluginId))
+            .then(config => {
+                renderConfiguration(config);
+                saveStatus.textContent = 'Saved. Trigger threshold: ' + thresholdInput.value + '%.';
+            })
+            .catch(error => {
+                console.error('Episode Prewarm: failed to save plugin configuration.', error);
+                saveStatus.textContent = 'Could not save plugin configuration: ' + (error?.message || error);
+            })
+            .finally(() => {
+                saveButton.disabled = false;
+                Dashboard.hideLoadingMsg();
+            });
+
+        return false;
     }
 
-    // Load immediately as well as on subsequent navigation back to this page.
-    loadConfiguration();
+    // Jellyfin dispatches pageshow on plugin page elements when navigating to them.
     page.addEventListener('pageshow', loadConfiguration);
-
-    form.addEventListener('submit', event => {
-        event.preventDefault();
-        saveConfiguration();
-    });
+    form.addEventListener('submit', saveConfiguration);
 })();
 </script>
 </body>

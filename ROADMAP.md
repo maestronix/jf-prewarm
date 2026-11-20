@@ -136,6 +136,71 @@ Die API- und Client-Quellenprüfung ist abgeschlossen. Der Detailseiten-Ansatz i
 
 ## Phase B — Einheitliche Trigger- und Kandidatenlogik
 
+### B1. Zielarchitektur und Datenfluss
+
+Die Trigger sollen keine eigene Dateiarbeit und keine eigene Cooldown-Logik enthalten. Sie melden nur, *warum* und *für welches Ausgangsobjekt bzw. welchen User* ein Prewarm angestoßen wurde.
+
+Geplanter Datenfluss:
+
+```text
+Playback-Progress ─┐
+Detailseiten-HTTP ─┼─> PrewarmRequest -> CandidateResolver -> PrewarmCandidate
+SessionStarted ────┘                                      |
+                                                          v
+                                             zentrale Preload-Queue
+                                                          |
+                                                          v
+                                      globaler Cooldown + In-Flight
+                                                          |
+                                                          v
+                                              maximal 1 MiB lesen
+```
+
+### B2. Gemeinsames Request-Modell
+
+Geplant ist ein unveränderliches Request-Modell mit folgenden Informationen:
+
+| Feld | Zweck |
+|---|---|
+| `TriggerSource` | `PlaybackProgress`, `ItemDetail` oder `SessionStarted` |
+| `ItemId` (optional) | Ausgangsobjekt: Episode, Film oder Serie; bei Session-Start zunächst nicht zwingend bekannt |
+| `UserId` (optional) | Nur für userbezogene Kandidatenauswahl / Wiedergabeverlauf; niemals Teil des Cooldown-Schlüssels |
+
+Die konkrete Umsetzung kann ein Record plus Enum sein. Es werden IDs statt Jellyfin-`BaseItem`-Objekte über Event-/HTTP-Grenzen transportiert, damit die Queue keine langlebigen oder threadübergreifend verwendeten Entity-Instanzen halten muss.
+
+### B3. Zentrale Kandidatenauswahl
+
+Ein zentraler Resolver bildet einen `PrewarmRequest` auf null oder genau einen konkreten, dateibasierten `PrewarmCandidate` ab:
+
+| Trigger | Kandidatenauswahl |
+|---|---|
+| Playback-Progress | Ausgangsepisode laden/auflösen, danach nächste verfügbare Episode ermitteln (bestehende 90-%-Schwelle bleibt im Trigger) |
+| Detailseite Episode / Film | Genau das angefragte Item |
+| Detailseite Serie / Container | User-Kontext verwenden: letzte Episode unter 90 % selbst, ab 90 % nächste Episode; ohne Verlauf S01E01, sonst nächste verfügbare Episode |
+| Session-Start | Userbezogenen letzten Wiedergabekontext ermitteln; Episoden-/Filmregeln aus der Trigger-Roadmap anwenden |
+
+Der Resolver liefert keinen Container ohne eigene Mediendatei als Preload-Ziel. Kandidaten ohne konkrete Datei bzw. mit ungültigem Pfad werden verworfen. Die Entscheidung über den Kandidaten wird zentral gehalten, nicht in den einzelnen Event-Handlern dupliziert.
+
+### B4. Einheitliche Queue-, Cooldown- und Dedupe-Semantik
+
+- Alle Trigger stellen denselben Request-Typ in dieselbe Queue.
+- Erst nach der Kandidatenauswahl wird anhand der **Ziel-Item-ID** dedupliziert. So führen unterschiedliche Trigger/User, die dasselbe Ziel bestimmen, nicht zu parallelen Reads.
+- Der persistente Cooldown ist global und ebenfalls anhand der Ziel-Item-ID; User-ID und Trigger-Quelle sind ausdrücklich kein Bestandteil des Schlüssels.
+- Cooldown wird nur nach einem erfolgreichen Read gesetzt/aktualisiert. Fehler bleiben erneut versuchbar.
+- Queue-Einträge bleiben klein; Datei-I/O findet ausschließlich im Worker statt.
+- Die Trigger-Quelle kann für Diagnose/Statistiken mitgeführt werden, ohne pro Request ausführliche Logs zu erzeugen.
+
+**Persistenz-/Kompatibilitätshinweis:** Der aktuelle XML-Konfigurationseintrag heißt `EpisodeId`, obwohl künftig auch Filme und andere Media Items gespeichert werden. Bei der Umstellung auf einen generischen Item-Schlüssel muss die bestehende Jellyfin-XML-Konfiguration rückwärtskompatibel eingelesen bzw. migriert werden. Die bestehende XML-Property darf nicht einfach umbenannt werden, ohne diesen Migrationspfad zu testen.
+
+### B5. Abgrenzung und Reihenfolge der Umsetzung
+
+1. Request-/Trigger-Typen und Candidate-Resolver einführen, zunächst ohne das aktuelle Playback-Verhalten zu verändern.
+2. Bestehenden Playback-Trigger auf das Request-Modell umstellen und Verhalten vergleichen.
+3. Cooldown und In-Flight-Dedupe auf die aufgelöste Ziel-Item-ID vereinheitlichen.
+4. Erst danach Detailseiten- und Session-Start-Trigger anschließen.
+
+Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session-Events sollen keine zweite Preload-Pipeline aufbauen.
+
 - [ ] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start definieren.
 - [ ] Kandidatenauswahl für Serienverlauf, Resume-Fälle und Filme zentralisieren.
 - [ ] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.

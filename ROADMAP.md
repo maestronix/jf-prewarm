@@ -14,7 +14,7 @@
 | Persistenter, globaler Cooldown pro Episode | ✅ Implementiert |
 | Jellyfin-API für Session-Start und User-Wiedergabestatus geprüft | ✅ Verifiziert |
 | HTTP-Detailseiten-Hook und Client-Request-Varianten untersucht | ✅ Verifiziert (Build/Runtime noch offen) |
-| Detailseiten-Middleware für Einzel-Item-Requests | ✅ Implementiert (Build/Runtime-Test offen) |
+| Detailseiten-Middleware für Einzel-Item-Requests | ✅ Implementiert (Runtime-Test offen) |
 | Detailseiten-Trigger für konkrete dateibasierte Items | ✅ Implementiert (Build/Runtime-Test offen) |
 | Container-Auflösung (Serie/Staffel/Sammlung) | ✅ Implementiert (Build/Runtime-Test offen) |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
@@ -50,13 +50,13 @@ Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ 
 ### 4. Detailseite eines Films
 
 - [x] Beim erfolgreichen Einzel-Item-Metadatenabruf genau diesen Film prewarmen.
-- [ ] Es gilt der normale globale Item-Cooldown.
+- [x] Es gilt der normale globale Item-Cooldown.
 
 ### 5. Detailseiten weiterer Media Items / Bibliotheken
 
 - [x] Detailseiten-Trigger auf konkrete dateibasierte Media Items erweitern.
 - [x] Bei Serien, Staffeln, Sammlungen und weiteren Folder-Containern einen konkreten Media-Kandidaten bestimmen.
-- [ ] Reine Bildabrufe (Poster/Backdrop) nicht als eigenständigen Preload-Trigger behandeln.
+- [x] Reine Bildabrufe (Poster/Backdrop) nicht als eigenständigen Preload-Trigger behandeln.
 
 ### 6. Neue Session / User kommt wieder online
 
@@ -117,9 +117,9 @@ Das bedeutet ausdrücklich: Wird ein Medium direkt aus einer Startseiten- oder L
 - Jellyfin ruft `IPluginServiceRegistrator.RegisterServices` während `CoreAppHost.Init` auf, bevor der Webhost gebaut und gestartet wird. Darüber kann ein ASP.NET-Core-`IStartupFilter` registriert werden.
 - Jellyfin 12.4 verwendet eine reguläre ASP.NET-Core-`Startup`-Pipeline. Ein `IStartupFilter` kann Middleware ergänzen, ohne Jellyfins Startup-Klasse oder Controller zu ersetzen.
 - Middleware kann den Request vor `next` klassifizieren und nach `next` ausschließlich bei 2xx den Kandidaten melden. Kein Response-Body muss gelesen, gepuffert oder verändert werden.
-- Für Compile-Time-Typen wie `IStartupFilter` / `IApplicationBuilder` wird voraussichtlich `FrameworkReference Include="Microsoft.AspNetCore.App"` benötigt.
+- Für Compile-Time-Typen wie `IStartupFilter` / `IApplicationBuilder` ist `FrameworkReference Include="Microsoft.AspNetCore.App"` im Plugin-Projekt ergänzt.
 
-**Ergebnis:** Der Hook ist auf Architektur-/Quellcode-Ebene grundsätzlich möglich. Plugin-Build und tatsächlicher Plugin-Load/Runtimetest sind noch offen; die Middleware ist damit noch nicht als lauffähig verifiziert.
+**Ergebnis:** Der Plugin-Build mit Middleware und Container-Resolver läuft in GitHub Actions erfolgreich durch. Der tatsächliche Plugin-Load und die Laufzeit-Requests in Jellyfin sind noch offen.
 
 ### A4. Jellyfin-12.4-APIs für Session-Start und User-Wiedergabestatus
 
@@ -133,7 +133,7 @@ Das bedeutet ausdrücklich: Wird ein Medium direkt aus einer Startseiten- oder L
 
 ### Phase-A-Ergebnis
 
-Die API- und Client-Quellenprüfung ist abgeschlossen. Der Detailseiten-Ansatz ist implementiert; Build und Laufzeitverhalten müssen noch verifiziert werden. Der Matcher deckt bewusst konkrete Einzel-Item-Abfragen ab und nicht Startseiten-/Listen-Requests. Diese Einschränkung ist eine bewusste Produktentscheidung, kein noch offener Implementierungsfehler.
+Die API- und Client-Quellenprüfung ist abgeschlossen. Der Detailseiten-Ansatz ist implementiert und der CI-Build ist erfolgreich; das Laufzeitverhalten muss noch verifiziert werden. Der Matcher deckt bewusst konkrete Einzel-Item-Abfragen ab und nicht Startseiten-/Listen-Requests. Diese Einschränkung ist eine bewusste Produktentscheidung, kein noch offener Implementierungsfehler.
 
 ---
 
@@ -209,7 +209,7 @@ Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session
 - [x] Kandidatenauswahl für Serienverlauf und Resume-Fälle zentralisieren.
 - [x] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
 - [x] Globale Cooldown-Prüfung und Request-Deduplizierung in den gemeinsamen Worker übernehmen (Ziel-Item-ID als Cooldown-Schlüssel).
-- [ ] Trigger-Quelle intern nachvollziehbar halten (Playback, Detailseite, Session-Start), ohne unnötig ausführliche Logs zu erzeugen.
+- [x] Trigger-Quelle intern nachvollziehbar halten (Playback, Detailseite, Session-Start), ohne unnötig ausführliche Logs zu erzeugen.
 
 ## Phase C — Trigger implementieren
 
@@ -217,7 +217,7 @@ Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session
 - [x] Einzel-Item-Trigger für konkrete dateibasierte Items aktivieren.
 - [x] Container-Items (Serie/Staffel/Sammlung) auf konkrete Kandidaten auflösen.
 - [ ] Session-Start-Trigger integrieren.
-- [ ] Bestehenden 90-%-Playback-Trigger an die gemeinsame Queue-/Kandidatenlogik anbinden.
+- [x] Bestehenden 90-%-Playback-Trigger an die gemeinsame Queue-/Kandidatenlogik anbinden.
 
 ## Phase D — Verifikation
 

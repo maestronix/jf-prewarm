@@ -60,9 +60,9 @@ public sealed class PrewarmService : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
-    public void QueueDetailRequest(Guid itemId, Guid? userId)
+    public bool QueueDetailRequest(Guid itemId, Guid? userId)
     {
-        QueueRequest(new PrewarmRequest(PrewarmTriggerSource.ItemDetail, itemId, userId));
+        return QueueRequest(new PrewarmRequest(PrewarmTriggerSource.ItemDetail, itemId, userId));
     }
 
     private static int GetThreshold() => Math.Clamp(Plugin.Instance.Configuration.TriggerPercent, 1, 99);
@@ -110,10 +110,20 @@ public sealed class PrewarmService : BackgroundService
         }
     }
 
-    private void QueueRequest(PrewarmRequest request)
+    private bool QueueRequest(PrewarmRequest request)
     {
-        if (!_pending.TryAdd(request, 0)) return;
-        if (!_queue.Writer.TryWrite(request)) _pending.TryRemove(request, out _);
+        if (!_pending.TryAdd(request, 0))
+        {
+            return false;
+        }
+
+        if (!_queue.Writer.TryWrite(request))
+        {
+            _pending.TryRemove(request, out _);
+            return false;
+        }
+
+        return true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -157,13 +167,33 @@ public sealed class PrewarmService : BackgroundService
             throw;
         }
 
-        if (candidate is null || string.IsNullOrWhiteSpace(candidate.Item.Path))
+        if (candidate is null)
         {
             if (request.Source == PrewarmTriggerSource.SessionStarted)
             {
                 _logger.LogInformation(
                     "No eligible session-start candidate found for user {UserId}.",
                     request.UserId);
+            }
+            else if (request.Source == PrewarmTriggerSource.ItemDetail)
+            {
+                _logger.LogInformation(
+                    "ItemDetail request for item {ItemId} and user {UserId} produced no eligible preload candidate.",
+                    request.ItemId,
+                    request.UserId);
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate.Item.Path))
+        {
+            if (request.Source == PrewarmTriggerSource.ItemDetail)
+            {
+                _logger.LogInformation(
+                    "ItemDetail candidate {ItemName} ({ItemId}) has no local file path; skipping preload.",
+                    Describe(candidate.Item),
+                    candidate.Item.Id);
             }
 
             return;

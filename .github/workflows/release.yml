@@ -47,9 +47,11 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "target_abi=$(jq -r '.targetAbi' meta.json)" >> "$GITHUB_OUTPUT"
-          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
-          jq -r '.changelog' meta.json >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "changelog<<EOF"
+            jq -r '.changelog' meta.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Restore and build
         run: |

@@ -16,10 +16,10 @@
 | HTTP-Detailseiten-Hook und Client-Request-Varianten untersucht | ✅ Verifiziert (Build/Runtime noch offen) |
 | Detailseiten-Middleware für Einzel-Item-Requests | ✅ Implementiert (Build/Runtime-Test offen) |
 | Detailseiten-Trigger für konkrete dateibasierte Items | ✅ Implementiert (Build/Runtime-Test offen) |
-| Container-Auflösung (Serie/Staffel/Sammlung) | 🟡 Geplant |
+| Container-Auflösung (Serie/Staffel/Sammlung) | ✅ Implementiert (Build/Runtime-Test offen) |
 | Prewarm beim Start einer neuen Session / Rückkehr online | 🟡 Geplant |
 | Gemeinsames Trigger-/Request-Modell | ✅ Implementiert |
-| Vereinheitlichte Kandidatenauswahl für alle Trigger | 🟡 Geplant |
+| Vereinheitlichte Kandidatenauswahl für Playback und Detailseite | ✅ Implementiert |
 
 Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ offen
 
@@ -37,15 +37,15 @@ Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ 
 
 ### 2. Detailseite einer Serie
 
-- [ ] Ohne Wiedergabeverlauf die erste verfügbare Episode laden (bevorzugt **S01E01**).
-- [ ] Ist S01E01 nicht vorhanden oder nicht lesbar, die nächste verfügbare Episode suchen.
-- [ ] Mit Wiedergabeverlauf anhand des letzten Episoden-Fortschritts entscheiden:
+- [x] Ohne Wiedergabeverlauf die erste verfügbare Episode laden (bevorzugt **S01E01**).
+- [x] Ist S01E01 nicht vorhanden oder nicht lesbar, die nächste verfügbare Episode suchen.
+- [x] Mit Wiedergabeverlauf anhand des letzten Episoden-Fortschritts entscheiden:
   - Unter 90 %: zuletzt geschaute Episode.
   - Ab 90 %: nächste verfügbare Episode.
 
 ### 3. Detailseite einer Episode
 
-- [ ] Beim Öffnen genau diese Episode prewarmen, unabhängig vom Wiedergabestatus.
+- [x] Beim erfolgreichen Einzel-Item-Metadatenabruf genau diese Episode prewarmen, unabhängig vom Wiedergabestatus.
 
 ### 4. Detailseite eines Films
 
@@ -54,8 +54,8 @@ Legende: ✅ implementiert/verifiziert · 🟡 geplant · 🔄 in Arbeit · ⬜ 
 
 ### 5. Detailseiten weiterer Media Items / Bibliotheken
 
-- [ ] Detailseiten-Trigger auf alle unterstützten, dateibasierten Media Items erweitern.
-- [ ] Bei Container-Items ohne eigene Mediendatei (z. B. Staffeln, Sammlungen oder Serien) einen konkreten Media-Kandidaten bestimmen.
+- [x] Detailseiten-Trigger auf konkrete dateibasierte Media Items erweitern.
+- [x] Bei Serien, Staffeln, Sammlungen und weiteren Folder-Containern einen konkreten Media-Kandidaten bestimmen.
 - [ ] Reine Bildabrufe (Poster/Backdrop) nicht als eigenständigen Preload-Trigger behandeln.
 
 ### 6. Neue Session / User kommt wieder online
@@ -129,11 +129,11 @@ Das bedeutet ausdrücklich: Wird ein Medium direkt aus einer Startseiten- oder L
 - `IUserDataManager.GetUserData(User, BaseItem)` liefert unter anderem `PlaybackPositionTicks`, `Played` und `LastPlayedDate`.
 - Userbezogene Bibliotheksabfragen sind über `InternalItemsQuery(user)` möglich, einschließlich Filterung nach Item-Typ, Sortierung nach `DatePlayed` und Limitierung.
 
-**Offene Verifikation:** Die konkrete Query für den letzten Episodenkontext muss bei der Implementierung gegen Resume- und Completed-Fälle getestet werden. Für die 90-%-Entscheidung muss die gespeicherte Position gegen die Laufzeit des Items ausgewertet werden; `Played` allein reicht dafür nicht.
+**Implementierungsentscheidung:** Für Serien wird die Episodenliste einmal ermittelt und die User-Daten mit `IUserDataManager.GetUserDataBatch` gesammelt geladen. Das vermeidet eine einzelne Datenbankabfrage pro Episode. Die zuletzt geschaute Episode wird anhand `LastPlayedDate` bestimmt; Resume-Positionen dienen als Fallback bei gleichem/fehlendem Zeitstempel. Für die 90-%-Entscheidung wird `PlaybackPositionTicks` gegen `RunTimeTicks` geprüft; `Played` gilt als abgeschlossen. Diese Logik ist implementiert, Resume-/Completed-Fälle müssen aber noch im laufenden Jellyfin verifiziert werden.
 
 ### Phase-A-Ergebnis
 
-Die API- und Client-Quellenprüfung ist abgeschlossen. Der Detailseiten-Ansatz ist technisch plausibel, aber noch nicht gebaut oder zur Laufzeit getestet. Der Matcher deckt bewusst konkrete Einzel-Item-Abfragen ab und nicht Startseiten-/Listen-Requests. Diese Einschränkung ist eine bewusste Produktentscheidung, kein noch offener Implementierungsfehler.
+Die API- und Client-Quellenprüfung ist abgeschlossen. Der Detailseiten-Ansatz ist implementiert; Build und Laufzeitverhalten müssen noch verifiziert werden. Der Matcher deckt bewusst konkrete Einzel-Item-Abfragen ab und nicht Startseiten-/Listen-Requests. Diese Einschränkung ist eine bewusste Produktentscheidung, kein noch offener Implementierungsfehler.
 
 ---
 
@@ -200,14 +200,14 @@ Der Resolver liefert keinen Container ohne eigene Mediendatei als Preload-Ziel. 
 1. [x] Request-/Trigger-Typen und Candidate-Resolver einführen.
 2. [x] Bestehenden Playback-Trigger auf das Request-Modell umstellen; Schwellwert und Episodenfolge bleiben unverändert.
 3. [x] Cooldown auf die aufgelöste Ziel-Item-ID umstellen; bestehendes XML-Feld `EpisodeId` aus Kompatibilitätsgründen beibehalten.
-4. [ ] Detailseiten- und Session-Start-Trigger anschließen.
+4. [x] Detailseiten-Trigger anschließen; Session-Start bleibt offen.
 
 Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session-Events sollen keine zweite Preload-Pipeline aufbauen.
 
 - [x] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start konzipieren und dokumentieren.
 - [x] Request-Modell und Candidate-Resolver im Plugin implementieren (Playback-Progress angebunden).
-- [ ] Kandidatenauswahl für Serienverlauf, Resume-Fälle und Filme zentralisieren.
-- [ ] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
+- [x] Kandidatenauswahl für Serienverlauf und Resume-Fälle zentralisieren.
+- [x] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
 - [x] Globale Cooldown-Prüfung und Request-Deduplizierung in den gemeinsamen Worker übernehmen (Ziel-Item-ID als Cooldown-Schlüssel).
 - [ ] Trigger-Quelle intern nachvollziehbar halten (Playback, Detailseite, Session-Start), ohne unnötig ausführliche Logs zu erzeugen.
 
@@ -215,7 +215,7 @@ Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session
 
 - [x] Detailseiten-Middleware integrieren.
 - [x] Einzel-Item-Trigger für konkrete dateibasierte Items aktivieren.
-- [ ] Container-Items (Serie/Staffel/Sammlung) auf konkrete Kandidaten auflösen.
+- [x] Container-Items (Serie/Staffel/Sammlung) auf konkrete Kandidaten auflösen.
 - [ ] Session-Start-Trigger integrieren.
 - [ ] Bestehenden 90-%-Playback-Trigger an die gemeinsame Queue-/Kandidatenlogik anbinden.
 
@@ -226,7 +226,7 @@ Damit bleibt die Änderung schrittweise testbar. Die HTTP-Middleware und Session
 - [ ] Listen-, Startseiten-, Such-, Bild- und Playback-Requests lösen keinen Detailseiten-Trigger aus.
 - [ ] Zwei User öffnen dasselbe Item: nur ein globaler Preload innerhalb des Cooldowns.
 - [ ] Ungesehene Serie: S01E01 bzw. nächste verfügbare Episode.
-- [ ] Episode / Film: genau dieses Item.
+- [ ] Episode / Film: genau dieses Item. (Laufzeitverifikation offen)
 - [ ] Session-Start mit Episode unter 90 %: dieselbe Episode; ab 90 %: nächste verfügbare Episode.
 - [ ] Session-Start mit Film unter 90 %: derselbe Film; ab 90 %: kein Preload.
 - [ ] Fehlende S01E01-Datei: nächste verfügbare Episode.

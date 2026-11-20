@@ -5,9 +5,9 @@
   "overview": "Asynchronously reads 1 MiB from the next episode with a persistent 6-hour cooldown per target episode.",
   "owner": "maestronix",
   "category": "General",
-  "version": "1.0.0.0",
+  "version": "1.0.1.0",
   "targetAbi": "12.4.0.0",
   "framework": "net10.0",
-  "changelog": "Initial release: asynchronous next-episode preloading, per-episode 6-hour cooldown, configurable playback threshold, and runtime statistics.",
+  "changelog": "Fix XML serialization of persisted per-episode cooldown state; store cooldown entries in an XML-serializable list.",
   "imageUrl": ""
 }

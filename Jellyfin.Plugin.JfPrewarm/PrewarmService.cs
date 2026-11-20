@@ -36,10 +36,12 @@ public sealed class PrewarmService : BackgroundService
     public PrewarmService(
         ISessionManager sessionManager,
         ILibraryManager libraryManager,
+        IUserManager userManager,
+        IUserDataManager userDataManager,
         ILogger<PrewarmService> logger)
     {
         _sessionManager = sessionManager;
-        _candidateResolver = new PrewarmCandidateResolver(libraryManager);
+        _candidateResolver = new PrewarmCandidateResolver(libraryManager, userManager, userDataManager);
         _logger = logger;
     }
 

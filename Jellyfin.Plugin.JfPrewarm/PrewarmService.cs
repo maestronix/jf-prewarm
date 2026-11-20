@@ -13,8 +13,7 @@ public sealed class PrewarmService : BackgroundService
 {
     private const int ReadSize = 1024 * 1024;
 
-    // Temporary development cooldown. Restore to TimeSpan.FromHours(6) before release.
-    private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan Cooldown = TimeSpan.FromHours(6);
 
     private readonly ISessionManager _sessionManager;
     private readonly PrewarmCandidateResolver _candidateResolver;
@@ -48,7 +47,7 @@ public sealed class PrewarmService : BackgroundService
         _sessionManager.PlaybackStart += OnPlaybackProgress;
         _sessionManager.SessionStarted += OnSessionStarted;
         _logger.LogInformation("Episode Prewarm started. Trigger threshold: {Threshold}%.", GetThreshold());
-        _logger.LogInformation("Session-start trigger registered. Development cooldown: {Cooldown}.", Cooldown);
+        _logger.LogInformation("Global prewarm cooldown: {Cooldown}.", Cooldown);
         return base.StartAsync(cancellationToken);
     }
 

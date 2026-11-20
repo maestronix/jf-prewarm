@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using MediaBrowser.Controller.Entities;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -11,7 +10,8 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JfPrewarm;
 
 /// <summary>
-/// Receives playback progress events and performs preloads away from playback threads.
+/// Receives prewarm requests and performs candidate resolution and file reads
+/// away from playback and request-processing threads.
 /// </summary>
 public sealed class PrewarmService : BackgroundService
 {
@@ -19,9 +19,9 @@ public sealed class PrewarmService : BackgroundService
     private static readonly TimeSpan Cooldown = TimeSpan.FromHours(6);
 
     private readonly ISessionManager _sessionManager;
-    private readonly ILibraryManager _libraryManager;
+    private readonly PrewarmCandidateResolver _candidateResolver;
     private readonly ILogger<PrewarmService> _logger;
-    private readonly Channel<Guid> _queue = Channel.CreateBounded<Guid>(
+    private readonly Channel<PrewarmRequest> _queue = Channel.CreateBounded<PrewarmRequest>(
         new BoundedChannelOptions(256)
         {
             SingleReader = true,
@@ -29,8 +29,8 @@ public sealed class PrewarmService : BackgroundService
             FullMode = BoundedChannelFullMode.Wait
         });
 
-    // An item remains pending from enqueue until its worker attempt has completed.
-    private readonly ConcurrentDictionary<Guid, byte> _pending = new();
+    // Prevent identical requests from accumulating while queued or processed.
+    private readonly ConcurrentDictionary<PrewarmRequest, byte> _pending = new();
     private readonly object _stateLock = new();
 
     public PrewarmService(
@@ -39,7 +39,7 @@ public sealed class PrewarmService : BackgroundService
         ILogger<PrewarmService> logger)
     {
         _sessionManager = sessionManager;
-        _libraryManager = libraryManager;
+        _candidateResolver = new PrewarmCandidateResolver(libraryManager);
         _logger = logger;
     }
 
@@ -82,10 +82,9 @@ public sealed class PrewarmService : BackgroundService
                 return;
             }
 
-            if (_pending.TryAdd(episode.Id, 0) && !_queue.Writer.TryWrite(episode.Id))
-            {
-                _pending.TryRemove(episode.Id, out _);
-            }
+            QueueRequest(new PrewarmRequest(
+                PrewarmTriggerSource.PlaybackProgress,
+                episode.Id));
         }
         catch (Exception ex)
         {
@@ -93,13 +92,26 @@ public sealed class PrewarmService : BackgroundService
         }
     }
 
+    private void QueueRequest(PrewarmRequest request)
+    {
+        if (!_pending.TryAdd(request, 0))
+        {
+            return;
+        }
+
+        if (!_queue.Writer.TryWrite(request))
+        {
+            _pending.TryRemove(request, out _);
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var episodeId in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+        await foreach (var request in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
         {
             try
             {
-                await ProcessEpisodeAsync(episodeId, stoppingToken).ConfigureAwait(false);
+                await ProcessRequestAsync(request, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -107,46 +119,29 @@ public sealed class PrewarmService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unhandled prewarm worker error for source episode {EpisodeId}.", episodeId);
+                _logger.LogError(
+                    ex,
+                    "Unhandled prewarm worker error for {TriggerSource} request {ItemId}.",
+                    request.Source,
+                    request.ItemId);
             }
             finally
             {
-                _pending.TryRemove(episodeId, out _);
+                _pending.TryRemove(request, out _);
             }
         }
     }
 
-    private async Task ProcessEpisodeAsync(Guid sourceEpisodeId, CancellationToken cancellationToken)
+    private async Task ProcessRequestAsync(PrewarmRequest request, CancellationToken cancellationToken)
     {
-        if (_libraryManager.GetItemById(sourceEpisodeId) is not Episode sourceEpisode
-            || sourceEpisode.SeriesId == Guid.Empty)
+        var candidate = _candidateResolver.Resolve(request);
+        if (candidate is null || string.IsNullOrWhiteSpace(candidate.Item.Path))
         {
             return;
         }
 
-        var seriesId = sourceEpisode.SeriesId;
-
-        var episodes = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = [BaseItemKind.Episode],
-            AncestorIds = [seriesId],
-            Recursive = true,
-            IsVirtualItem = false
-        }).OfType<Episode>();
-
-        var nextEpisode = episodes
-            .Where(candidate => candidate.Id != sourceEpisode.Id && IsAfter(candidate, sourceEpisode))
-            .OrderBy(candidate => candidate.ParentIndexNumber ?? int.MaxValue)
-            .ThenBy(candidate => candidate.IndexNumber ?? int.MaxValue)
-            .ThenBy(candidate => candidate.PremiereDate ?? DateTime.MaxValue)
-            .FirstOrDefault();
-
-        if (nextEpisode is null || string.IsNullOrWhiteSpace(nextEpisode.Path))
-        {
-            return;
-        }
-
-        var itemKey = nextEpisode.Id.ToString("N");
+        var targetItem = candidate.Item;
+        var itemKey = targetItem.Id.ToString("N");
         var now = DateTime.UtcNow;
 
         lock (_stateLock)
@@ -165,16 +160,16 @@ public sealed class PrewarmService : BackgroundService
 
             config.PreloadAttempts++;
             config.LastAttemptUtc = now;
-            config.LastResult = $"Reading {Describe(nextEpisode)}";
+            config.LastResult = $"Reading {Describe(targetItem)}";
             Plugin.Instance.SaveConfiguration();
         }
 
         try
         {
-            var bytesRead = await ReadFirstMiBAsync(nextEpisode.Path, cancellationToken).ConfigureAwait(false);
+            var bytesRead = await ReadFirstMiBAsync(targetItem.Path, cancellationToken).ConfigureAwait(false);
             if (bytesRead <= 0)
             {
-                throw new IOException("The target episode returned no readable bytes.");
+                throw new IOException("The target media item returned no readable bytes.");
             }
 
             lock (_stateLock)
@@ -187,6 +182,8 @@ public sealed class PrewarmService : BackgroundService
 
                 if (existingEntry is null)
                 {
+                    // EpisodeId is retained as the XML-serialized property name for
+                    // backwards compatibility; it now stores any target MediaItem ID.
                     config.LastPreloads.Add(new PreloadCooldownEntry
                     {
                         EpisodeId = itemKey,
@@ -200,15 +197,15 @@ public sealed class PrewarmService : BackgroundService
 
                 config.SuccessfulPreloads++;
                 config.BytesRead += bytesRead;
-                config.LastResult = $"Preloaded {Describe(nextEpisode)} ({bytesRead:N0} bytes).";
+                config.LastResult = $"Preloaded {Describe(targetItem)} ({bytesRead:N0} bytes).";
                 Plugin.Instance.SaveConfiguration();
             }
 
             _logger.LogInformation(
-                "Preloaded next episode {EpisodeName} ({BytesRead} bytes) after {SourceEpisode}.",
-                nextEpisode.Name,
+                "Preloaded {ItemName} ({BytesRead} bytes) from {TriggerSource} trigger.",
+                targetItem.Name,
                 bytesRead,
-                sourceEpisode.Name);
+                candidate.Source);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -216,38 +213,28 @@ public sealed class PrewarmService : BackgroundService
             {
                 var config = Plugin.Instance.Configuration;
                 config.FailedPreloads++;
-                config.LastResult = $"Failed {Describe(nextEpisode)}: {ex.Message}";
+                config.LastResult = $"Failed {Describe(targetItem)}: {ex.Message}";
                 Plugin.Instance.SaveConfiguration();
             }
 
-            _logger.LogWarning(ex, "Preload failed for next episode {EpisodeName} at {Path}.", nextEpisode.Name, nextEpisode.Path);
+            _logger.LogWarning(
+                ex,
+                "Preload failed for {ItemName} at {Path}.",
+                targetItem.Name,
+                targetItem.Path);
         }
     }
 
-    private static bool IsAfter(Episode candidate, Episode current)
+    private static string Describe(BaseItem item)
     {
-        var candidateSeason = candidate.ParentIndexNumber ?? int.MaxValue;
-        var currentSeason = current.ParentIndexNumber ?? int.MaxValue;
-        if (candidateSeason != currentSeason)
+        if (item is Episode episode)
         {
-            return candidateSeason > currentSeason;
+            var season = episode.ParentIndexNumber?.ToString("D2") ?? "??";
+            var number = episode.IndexNumber?.ToString("D2") ?? "??";
+            return $"{episode.SeriesName} S{season}E{number} - {episode.Name}";
         }
 
-        var candidateEpisode = candidate.IndexNumber ?? int.MaxValue;
-        var currentEpisode = current.IndexNumber ?? int.MaxValue;
-        if (candidateEpisode != currentEpisode)
-        {
-            return candidateEpisode > currentEpisode;
-        }
-
-        return candidate.PremiereDate > current.PremiereDate;
-    }
-
-    private static string Describe(Episode episode)
-    {
-        var season = episode.ParentIndexNumber?.ToString("D2") ?? "??";
-        var number = episode.IndexNumber?.ToString("D2") ?? "??";
-        return $"{episode.SeriesName} S{season}E{number} - {episode.Name}";
+        return item.Name;
     }
 
     private static async Task<int> ReadFirstMiBAsync(string path, CancellationToken cancellationToken)

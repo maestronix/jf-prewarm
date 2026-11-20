@@ -130,7 +130,9 @@ public sealed class PrewarmCandidateResolver
             return null;
         }
 
-        var user = request.UserId is Guid userId ? _userManager.GetUserById(userId) : null;
+        var user = request.UserId is Guid userId && userId != Guid.Empty
+            ? _userManager.GetUserById(userId)
+            : null;
         BaseItem? candidate = item switch
         {
             Series series => ResolveSeriesContainer(series, user),

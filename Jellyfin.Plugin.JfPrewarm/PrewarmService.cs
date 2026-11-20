@@ -129,7 +129,7 @@ public sealed class PrewarmService : BackgroundService
         var episodes = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Episode],
-            SeriesId = seriesId,
+            AncestorIds = [seriesId],
             Recursive = true,
             IsVirtualItem = false
         }).OfType<Episode>();

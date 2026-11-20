@@ -227,6 +227,7 @@ public sealed class PrewarmCandidateResolver
             })
             .Where(entry => entry.Data is not null && HasPlaybackHistory(entry.Data))
             .OrderByDescending(entry => entry.Data!.LastPlayedDate ?? DateTime.MinValue)
+            .ThenByDescending(entry => entry.Data!.PlaybackPositionTicks > 0)
             .ThenByDescending(entry => entry.Index)
             .FirstOrDefault();
 

@@ -1,13 +1,13 @@
 {
   "guid": "d1c4b6e8-8e2a-4b63-9f13-7a2e5d9c41f0",
   "name": "Episode Prewarm",
-  "description": "Preloads the beginning of the next episode when playback reaches a configurable progress threshold.",
-  "overview": "Asynchronously reads 1 MiB from the next episode with a persistent 6-hour cooldown per target episode.",
+  "description": "Preloads media items asynchronously when playback or item-detail activity indicates they may be played soon.",
+  "overview": "Asynchronously reads up to 1 MiB from a target media item with a persistent global 6-hour cooldown per item.",
   "owner": "maestronix",
   "category": "General",
-  "version": "1.0.2.0",
+  "version": "1.0.3.0",
   "targetAbi": "12.4.0.0",
   "framework": "net10.0",
-  "changelog": "Fix settings page save flow: prevent page reload and show save/load errors and confirmation.",
+  "changelog": "Add item-detail request triggers and resolve series, season, and collection containers to concrete playable media. Use per-user playback history and the configured progress threshold to select the appropriate episode, while retaining a shared queue and global per-item cooldown.",
   "imageUrl": ""
 }

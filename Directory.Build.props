@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Single source of truth for plugin, assembly, file and release versions. -->
+    <PluginVersion>1.0.4.0</PluginVersion>
+  </PropertyGroup>
+</Project>

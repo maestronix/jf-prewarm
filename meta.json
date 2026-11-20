@@ -1,5 +1,13 @@
 {
+  "guid": "d1c4b6e8-8e2a-4b63-9f13-7a2e5d9c41f0",
+  "name": "Episode Prewarm",
+  "description": "Preloads the beginning of the next episode when playback reaches a configurable progress threshold.",
+  "overview": "Asynchronously reads 1 MiB from the next episode with a persistent 6-hour cooldown per target episode.",
+  "owner": "maestronix",
+  "category": "General",
   "version": "1.0.0.0",
   "targetAbi": "12.4.0.0",
-  "changelog": "Initial release: asynchronous next-episode preloading, per-episode 6-hour cooldown, configurable playback threshold, and runtime statistics."
+  "framework": "net10.0",
+  "changelog": "Initial release: asynchronous next-episode preloading, per-episode 6-hour cooldown, configurable playback threshold, and runtime statistics.",
+  "imageUrl": ""
 }

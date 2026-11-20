@@ -72,7 +72,7 @@ public sealed class PrewarmCandidateResolver
     private BaseItem? ResolveSeriesContainer(Series series, User? user)
     {
         var episodes = GetSeriesEpisodes(series, user);
-        return ResolveEpisodeSequence(episodes, user, GetThreshold());
+        return ResolveEpisodeSequence(episodes, user, GetThreshold(), null, out _);
     }
 
     private BaseItem? ResolveSeasonContainer(Season season, User? user)
@@ -89,17 +89,6 @@ public sealed class PrewarmCandidateResolver
         }
 
         var allSeriesEpisodes = GetSeriesEpisodes(series, user);
-        var historyCandidate = ResolveEpisodeSequence(
-            allSeriesEpisodes,
-            user,
-            GetThreshold(),
-            firstEpisodeFallback: null);
-
-        if (historyCandidate is not null)
-        {
-            return historyCandidate;
-        }
-
         // With no series history, a season detail page should warm the first
         // available episode of that season, not always S01E01.
         var episodesInSeason = user is null
@@ -107,7 +96,16 @@ public sealed class PrewarmCandidateResolver
             : season.GetEpisodes(user, new DtoOptions(false), shouldIncludeMissingEpisodes: false)
                 .OfType<Episode>();
 
-        return FirstAvailableEpisode(episodesInSeason);
+        var historyCandidate = ResolveEpisodeSequence(
+            allSeriesEpisodes,
+            user,
+            GetThreshold(),
+            episodesInSeason,
+            out var hasHistory);
+
+        return hasHistory
+            ? historyCandidate
+            : FirstAvailableEpisode(episodesInSeason);
     }
 
     private BaseItem? ResolveFolderContainer(Folder folder, User? user)
@@ -200,17 +198,20 @@ public sealed class PrewarmCandidateResolver
         IReadOnlyList<Episode> episodes,
         User? user,
         int thresholdPercent,
-        BaseItem? firstEpisodeFallback = null)
+        IEnumerable<Episode>? firstEpisodeFallback,
+        out bool hasHistory)
     {
         var availableEpisodes = episodes.Where(IsPlayableFile).ToList();
+        hasHistory = false;
+
         if (availableEpisodes.Count == 0)
         {
-            return firstEpisodeFallback;
+            return FirstAvailableEpisode(firstEpisodeFallback ?? []);
         }
 
         if (user is null)
         {
-            return availableEpisodes[0];
+            return FirstAvailableEpisode(firstEpisodeFallback ?? availableEpisodes);
         }
 
         var userData = _userDataManager.GetUserDataBatch(
@@ -231,9 +232,10 @@ public sealed class PrewarmCandidateResolver
 
         if (lastWatched is null)
         {
-            return availableEpisodes[0];
+            return FirstAvailableEpisode(firstEpisodeFallback ?? availableEpisodes);
         }
 
+        hasHistory = true;
         var completed = HasReachedThreshold(lastWatched.Episode, lastWatched.Data!, thresholdPercent);
         if (!completed)
         {

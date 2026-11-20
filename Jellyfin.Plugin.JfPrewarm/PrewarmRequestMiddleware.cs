@@ -40,8 +40,11 @@ public sealed class PrewarmRequestMiddleware
             return;
         }
 
+        // Authentication may run later in Jellyfin's pipeline, so read the
+        // authenticated user claim only after the downstream middleware ran.
+        var userId = match.Value.UserId ?? ParseAuthenticatedUserId(context);
         context.RequestServices.GetService<PrewarmService>()
-            ?.QueueDetailRequest(match.Value.ItemId, match.Value.UserId);
+            ?.QueueDetailRequest(match.Value.ItemId, userId);
     }
 
     private static (Guid ItemId, Guid? UserId)? TryMatch(HttpRequest request)
@@ -57,7 +60,7 @@ public sealed class PrewarmRequestMiddleware
             && string.Equals(segments[0], "Items", StringComparison.OrdinalIgnoreCase)
             && Guid.TryParse(segments[1], out var itemId))
         {
-            return (itemId, ParseUserId(request));
+            return (itemId, ParseQueryUserId(request));
         }
 
         if (segments is { Length: 4 }
@@ -75,18 +78,24 @@ public sealed class PrewarmRequestMiddleware
             && ids.Count == 1
             && Guid.TryParse(ids[0], out var queryItemId))
         {
-            return (queryItemId, ParseUserId(request));
+            return (queryItemId, ParseQueryUserId(request));
         }
 
         return null;
     }
 
-    private static Guid? ParseUserId(HttpRequest request)
+    private static Guid? ParseQueryUserId(HttpRequest request)
     {
         return request.Query.TryGetValue("userId", out var values)
             && values.Count == 1
             && Guid.TryParse(values[0], out var userId)
                 ? userId
                 : null;
+    }
+
+    private static Guid? ParseAuthenticatedUserId(HttpContext context)
+    {
+        var value = context.User.FindFirst("Jellyfin-UserId")?.Value;
+        return Guid.TryParse(value, out var userId) ? userId : null;
     }
 }

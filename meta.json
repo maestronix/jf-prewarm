@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0.0",
+  "targetAbi": "12.4.0.0",
+  "changelog": "Initial release: asynchronous next-episode preloading, per-episode 6-hour cooldown, configurable playback threshold, and runtime statistics."
+}

@@ -105,10 +105,101 @@ Diese Regeln gelten für **jeden** Trigger — unabhängig davon, ob er aus Play
 
 - [x] Jellyfin-12.4-API für Session-Start und User-Wiedergabestatus verifizieren.
 - [x] Geeigneten Hook für HTTP-Detailseiten-Aufrufe verifizieren (ohne Response-Body-Manipulation).
-- [ ] Relevante Request-Varianten der Clients berücksichtigen: direkte Item-Abfrage und Einzel-ID-Abfrage über die Items-Collection.
+- [x] Relevante Request-Varianten der Clients berücksichtigen: direkte Item-Abfrage und Einzel-ID-Abfrage über die Items-Collection.
 - [ ] Sicherstellen, dass nur echte Einzel-Item-Detailabfragen triggern — keine Bibliothekslisten, Suche, Bilder oder Playback-Requests.
 
-#### Verifizierter HTTP-Hook für Detailseiten
+#### Verifizierte Client-Requests und Filterstrategie
+
+**In den Client-Quellen nachgewiesene Detailseiten-Aufrufe:**
+
+- **Jellyfin Web:** `apiClient.getItem(currentUserId, itemId)` in `src/apps/legacy/controllers/itemDetails/index.js`. Das entspricht dem Einzel-Item-Endpunkt `GET /Items/{itemId}?userId=...`; Jellyfins Legacy-Route `/Users/{userId}/Items/{itemId}` wird weiterhin unterstützt.
+- **Streamyfin:** Der Hook `hooks/useItemQuery.ts` ruft `getItems({ ids: [itemId], userId })` auf. Das ist `GET /Items?ids={itemId}&userId=...` mit genau einer ID.
+- **Wholphin:** Die Episode- und Film-Detail-ViewModels rufen `api.libraryApi.getItem(itemId)` beim Initialisieren der Detailansicht auf. Der Jellyfin-SDK-Aufruf nutzt den Einzel-Item-Abruf.
+
+**Vorgesehene Middleware-Matcher:**
+
+1. Nur `GET`.
+2. Einzel-Item-Pfad mit gültiger GUID: `/Items/{itemId}` oder Legacy `/Users/{userId}/Items/{itemId}`.
+3. Zusätzlich `/Items?ids={singleGuid}`, wenn `ids` genau eine gültige GUID enthält.
+4. Bei Collection-Requests mit mehreren IDs, fehlender/ungültiger ID, Bildern, Playback-/Stream-Endpunkten, Suche und normalen Listen nicht triggern.
+5. Erst nach erfolgreicher Antwort (2xx) an die zentrale Prewarm-Queue melden; Request-Pipeline und Response-Body bleiben unverändert.
+
+**Wichtige Einschränkung zur Erkennung:** Der HTTP-Endpunkt verrät nicht zuverlässig, *warum* ein Client ein einzelnes Item abruft. Wholphin lädt ein Item beispielsweise auch nach Änderungen des Wiedergabestatus erneut; Streamyfin verwendet dieselbe Items-API auch außerhalb einer Detailansicht. Ein reiner Middleware-Hook kann daher echte Detailansichten nicht hundertprozentig von anderen Einzel-Item-Abfragen unterscheiden. Referer oder User-Agent lösen das nicht zuverlässig clientübergreifend.
+
+**Pragmatische Entscheidung für den ersten Implementierungsschritt:** Erfolgreiche Einzel-Item-Metadatenabrufe als Prewarm-Kandidaten behandeln. Mehrfach-IDs, Listen, Suche, Bilder und Playback ausschließen. Die vorhandene globale 6h-Cooldown- und In-Flight-Deduplizierung begrenzen Wiederholungen. Falls sich im Laufzeitbetrieb störende False Positives zeigen, können wir client-/request-spezifische Filter ergänzen.
+
+
+- **Plugin-Einstiegspunkt:** Jellyfin ruft `IPluginServiceRegistrator.RegisterServices` während `CoreAppHost.Init` auf — also bevor der Webhost gebaut und gestartet wird. Der Plugin-Registrator kann damit einen ASP.NET-Core-`IStartupFilter` in der ServiceCollection registrieren.
+- **Pipeline-Einbindung:** Jellyfin 12.4 verwendet eine reguläre ASP.NET-Core-`Startup`-Klasse. Ein `IStartupFilter` kann die bestehende `Startup.Configure`-Pipeline um eine Middleware umschließen, ohne Jellyfins Startup-Klasse oder Controller zu ersetzen.
+- **Verhalten:** Die Middleware kann den Request vor `next` klassifizieren und nach `next` ausschließlich bei erfolgreichem HTTP-Status (2xx) einen Kandidaten an die vorhandene Queue melden. Kein Response-Body muss gelesen, gepuffert oder verändert werden.
+- **Abhängigkeit:** Das Plugin benötigt für die Compile-Time-Typen `IStartupFilter` / `IApplicationBuilder` eine Referenz auf das ASP.NET-Core-Shared-Framework (voraussichtlich `FrameworkReference Include="Microsoft.AspNetCore.App"`). Das muss beim Plugin-Build und im Jellyfin-Plugin-Load-Kontext verifiziert werden.
+
+**Ergebnis:** Ein eigener HTTP-Middleware-Hook ist auf Jellyfin 12.4 grundsätzlich möglich; ein Austausch von Jellyfins `Startup` oder ein Eingriff in den Response-Body ist nicht erforderlich. Die konkreten Request-Matcher und der Build-/Runtime-Test bleiben offen.
+
+#### Verifizierte Jellyfin-12.4-APIs
+
+- **Session-Start:** `ISessionManager.SessionStarted` ist vorhanden und liefert `SessionEventArgs`; über `args.SessionInfo` stehen unter anderem `UserId`, `UserName`, `DeviceId` und `Client` zur Verfügung.
+- **Semantik:** Jellyfin feuert `SessionStarted` beim Erzeugen einer neuen Session. Die Session wird anhand von Client/App, Device-ID und User-ID identifiziert. Normale Aktivitätsmeldungen innerhalb derselben Session lösen dieses Event nicht erneut aus. Mehrere Geräte eines Users können daher jeweils einen eigenen Trigger erzeugen.
+- **User-Auflösung:** `IUserManager.GetUserById(Guid)` liefert den zugehörigen User.
+- **Wiedergabestatus:** `IUserDataManager.GetUserData(User, BaseItem)` liefert `UserItemData` mit `PlaybackPositionTicks`, `Played` und `LastPlayedDate`.
+- **Kandidatenabfrage:** Jellyfin unterstützt userbezogene Bibliotheksabfragen über `new InternalItemsQuery(user)`, inklusive `IncludeItemTypes`, `OrderBy = [(ItemSortBy.DatePlayed, SortOrder.Descending)]` und `Limit`. Damit lässt sich die zuletzt gespielte Episode gezielt abfragen, statt die komplette Bibliothek im Plugin zu durchsuchen.
+
+**Wichtige Einschränkung:** Die API-Verfügbarkeit ist verifiziert. Die konkrete Query muss bei der Implementierung noch gegen echte Resume- und Completed-Fälle getestet werden — insbesondere, ob Jellyfins DatePlayed-Sortierung für den gewünschten „letzten Episodenkontext“ alle relevanten Fälle korrekt abbildet. Für die Unterscheidung unter/ab 90 % muss zusätzlich die gespeicherte Position gegen die Laufzeit des konkreten Items ausgewertet werden; `Played` allein ist dafür kein zuverlässiger Ersatz.
+
+### Phase B — Einheitliche Trigger- und Kandidatenlogik
+- [ ] Gemeinsames Trigger-/Request-Modell für Playback, Detailseite und Session-Start definieren.
+- [ ] Kandidatenauswahl für Serienverlauf, Resume-Fälle und Filme zentralisieren.
+- [ ] Serien-Episodenfolge inklusive fehlender Dateien und Staffelwechsel robust auflösen.
+- [ ] Globale Cooldown- und In-Flight-Prüfung vor dem Queue-Eintrag vereinheitlichen.
+
+### Phase C — Trigger implementieren
+- [ ] Detailseiten-Middleware bzw. geeigneten Jellyfin-Hook integrieren.
+- [ ] Detailseiten-Trigger für Serien, Episoden, Filme und weitere unterstützte Media Items aktivieren.
+- [ ] Session-Start-Trigger integrieren.
+- [ ] Bestehenden 90-%-Playback-Trigger auf die gemeinsame Queue umstellen bzw. daran anbinden.
+
+### Phase D — Verifikation
+- [ ] Zwei User öffnen dasselbe Item: nur ein globaler Preload innerhalb des Cooldowns.
+- [ ] Detailseite einer ungesehenen Serie: S01E01 bzw. nächste verfügbare Episode wird geladen.
+- [ ] Detailseite einer Episode / eines Films: genau dieses Item wird geladen.
+- [ ] Session-Start mit Episode unter 90 %: dieselbe Episode wird geladen.
+- [ ] Session-Start mit Episode ab 90 %: nächste verfügbare Episode wird geladen.
+- [ ] Session-Start mit Film unter 90 %: derselbe Film wird geladen.
+- [ ] Session-Start mit Film ab 90 %: kein Preload.
+- [ ] Fehlende S01E01-Datei: nächste verfügbare Episode wird gewählt.
+- [ ] Parallele Trigger erzeugen keine doppelten Reads.
+- [ ] Fehlgeschlagener Read setzt keinen Cooldown.
+- [ ] Playback und HTTP-Detailseiten-Aufrufe werden nicht durch Prewarm-Arbeit blockiert.
+
+---
+
+## 🚫 Bewusst nicht Teil dieses Umfangs
+
+- Kein Prewarm kompletter Serien, Staffeln oder Bibliotheken.
+- Keine getrennten Caches oder Cooldowns pro User.
+- Kein zusätzlicher ffprobe-Aufruf und keine Transcodierung.
+- Keine Änderung am eigentlichen Playback- oder Streaming-Pfad.
+- Keine unnötige Vorab-Abfrage von Postern/Bildern als Ersatz für einen Item-Detailseiten-Trigger.
+
+---
+
+## 📝 Entscheidungslog
+
+| Entscheidung | Festlegung |
+|---|---|
+| Preload-Größe | Maximal 1 MiB pro erfolgreichem Preload |
+| Cooldown | 6 Stunden pro Media Item, global |
+| Playback-Schwellwert | Konfigurierbar, Standard 90 % |
+| Session-Start | Bewusst aggressiv: pro neuer Session einen passenden Kandidaten ermitteln |
+| Episode unter 90 % | Dieselbe Episode erneut laden |
+| Episode ab 90 % | Nächste verfügbare Episode laden |
+| Film unter 90 % | Derselbe Film erneut laden |
+| Film ab 90 % | Kein weiterer Preload |
+| Ungesehene Serie | S01E01, sonst nächste verfügbare Episode |
+| Detailseite | Das konkrete Media Item laden; Container auf einen konkreten Kandidaten auflösen |
+| Cache-Isolation | Keine User-Isolation; ein Item-Cache für alle |
+
+*Diese Roadmap dokumentiert das gewünschte Verhalten und den geplanten Implementierungsumfang. Geplante Punkte sind noch keine Aussage darüber, dass die entsprechenden Jellyfin-Hooks bereits technisch verifiziert oder implementiert sind.*
 
 - **Plugin-Einstiegspunkt:** Jellyfin ruft `IPluginServiceRegistrator.RegisterServices` während `CoreAppHost.Init` auf — also bevor der Webhost gebaut und gestartet wird. Der Plugin-Registrator kann damit einen ASP.NET-Core-`IStartupFilter` in der ServiceCollection registrieren.
 - **Pipeline-Einbindung:** Jellyfin 12.4 verwendet eine reguläre ASP.NET-Core-`Startup`-Klasse. Ein `IStartupFilter` kann die bestehende `Startup.Configure`-Pipeline um eine Middleware umschließen, ohne Jellyfins Startup-Klasse oder Controller zu ersetzen.

@@ -23,12 +23,27 @@ public sealed class PrewarmCandidateResolver
         return request.Source switch
         {
             PrewarmTriggerSource.PlaybackProgress => ResolvePlaybackProgress(request),
-            // Detail and session-start requests are intentionally not active yet.
-            // Their selection rules will be added before those triggers are connected.
-            PrewarmTriggerSource.ItemDetail => null,
+            PrewarmTriggerSource.ItemDetail => ResolveItemDetail(request),
+            // Session-start candidate selection will be added in the next phase.
             PrewarmTriggerSource.SessionStarted => null,
             _ => null
         };
+    }
+
+    private PrewarmCandidate? ResolveItemDetail(PrewarmRequest request)
+    {
+        if (request.ItemId is not Guid itemId)
+        {
+            return null;
+        }
+
+        var item = _libraryManager.GetItemById(itemId);
+        if (item is null || string.IsNullOrWhiteSpace(item.Path))
+        {
+            return null;
+        }
+
+        return new PrewarmCandidate(item, request.Source, item.Id);
     }
 
     private PrewarmCandidate? ResolvePlaybackProgress(PrewarmRequest request)

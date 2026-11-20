@@ -5,11 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: Plugin version (for example 1.0.0.0)
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -29,24 +24,31 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Resolve version
+      - name: Resolve version from single source
         id: version
         shell: bash
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-
-          META_VERSION="$(jq -r '.version' meta.json)"
-          if [[ "$VERSION" != "$META_VERSION" ]]; then
-            echo "::error::Release version $VERSION does not match meta.json version $META_VERSION"
+          VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:PluginVersion)"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not read PluginVersion from Directory.Build.props"
             exit 1
           fi
 
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [[ "$TAG_VERSION" != "$VERSION" ]]; then
+              echo "::error::Tag version $TAG_VERSION does not match Directory.Build.props version $VERSION"
+              exit 1
+            fi
+          fi
+
+          TARGET_ABI="$(jq -r '.targetAbi' meta.json)"
+          jq --arg version "$VERSION" '.version = $version' meta.json > meta.tmp
+          mv meta.tmp meta.json
+          sed -i -E "s/^version:.*/version: $VERSION/" build.yaml
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "target_abi=$(jq -r '.targetAbi' meta.json)" >> "$GITHUB_OUTPUT"
+          echo "target_abi=$TARGET_ABI" >> "$GITHUB_OUTPUT"
           {
             echo "changelog<<EOF"
             jq -r '.changelog' meta.json
@@ -57,6 +59,16 @@ jobs:
         run: |
           dotnet restore Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj
           dotnet build Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj --configuration Release --no-restore
+
+      - name: Verify assembly version
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ASSEMBLY_VERSION="$(dotnet msbuild Jellyfin.Plugin.JfPrewarm/Jellyfin.Plugin.JfPrewarm.csproj -nologo -verbosity:quiet -getProperty:AssemblyVersion)"
+          if [[ "$ASSEMBLY_VERSION" != "$VERSION" ]]; then
+            echo "::error::Assembly version $ASSEMBLY_VERSION does not match plugin version $VERSION"
+            exit 1
+          fi
 
       - name: Package plugin
         shell: bash
@@ -111,10 +123,10 @@ jobs:
 
           mv manifest.tmp manifest.json
 
-      - name: Commit manifest
+      - name: Commit generated metadata and manifest
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifest.json
+          git add meta.json build.yaml manifest.json
           git diff --cached --quiet || git commit -m "Publish Jellyfin repository manifest for v${{ steps.version.outputs.version }}"
           git push

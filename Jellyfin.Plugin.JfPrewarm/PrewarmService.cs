@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -26,12 +25,11 @@ public sealed class PrewarmService : BackgroundService
         {
             SingleReader = true,
             SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropWrite
+            FullMode = BoundedChannelFullMode.Wait
         });
 
     // An item remains pending from enqueue until its worker attempt has completed.
     private readonly ConcurrentDictionary<Guid, byte> _pending = new();
-
     private readonly object _stateLock = new();
 
     public PrewarmService(
@@ -133,7 +131,7 @@ public sealed class PrewarmService : BackgroundService
         }).OfType<Episode>();
 
         var nextEpisode = episodes
-            .Where(candidate => IsAfter(candidate, sourceEpisode))
+            .Where(candidate => candidate.Id != sourceEpisode.Id && IsAfter(candidate, sourceEpisode))
             .OrderBy(candidate => candidate.ParentIndexNumber ?? int.MaxValue)
             .ThenBy(candidate => candidate.IndexNumber ?? int.MaxValue)
             .ThenBy(candidate => candidate.PremiereDate ?? DateTime.MaxValue)

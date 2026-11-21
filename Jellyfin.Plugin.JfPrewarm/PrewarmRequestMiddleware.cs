@@ -122,15 +122,9 @@ public sealed class PrewarmRequestMiddleware
             return (legacyItemId, routeUserId);
         }
 
-        if (segments is { Length: 1 }
-            && string.Equals(segments[0], "Items", StringComparison.OrdinalIgnoreCase)
-            && request.Query.TryGetValue("ids", out var ids)
-            && ids.Count == 1
-            && Guid.TryParse(ids[0], out var queryItemId))
-        {
-            return (queryItemId, ParseQueryUserId(request));
-        }
-
+        // Do not treat GET /Items?ids=... as a detail-page trigger.
+        // Jellyfin clients use this batch metadata endpoint while rendering
+        // lists and other UI surfaces; it can enumerate unrelated library items.
         return null;
     }
 
@@ -139,6 +133,7 @@ public sealed class PrewarmRequestMiddleware
         return request.Query.TryGetValue("userId", out var values)
             && values.Count == 1
             && Guid.TryParse(values[0], out var userId)
+            && userId != Guid.Empty
                 ? userId
                 : null;
     }
@@ -146,6 +141,8 @@ public sealed class PrewarmRequestMiddleware
     private static Guid? ParseAuthenticatedUserId(HttpContext context)
     {
         var value = context.User.FindFirst("Jellyfin-UserId")?.Value;
-        return Guid.TryParse(value, out var userId) ? userId : null;
+        return Guid.TryParse(value, out var userId) && userId != Guid.Empty
+            ? userId
+            : null;
     }
 }
